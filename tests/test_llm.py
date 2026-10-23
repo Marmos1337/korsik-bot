@@ -48,6 +48,16 @@ def test_chat_and_embed_raise_when_ollama_goes_down(ollama):
     assert llm.is_up() is False
 
 
+def test_background_embedding_failure_keeps_the_mode(ollama):
+    assert asyncio.run(llm.check()) is True
+    ollama["down"] = True
+
+    with pytest.raises(llm.LLMUnavailable):
+        asyncio.run(llm.embed(["привет"], mark_down=False))
+
+    assert llm.is_up() is True
+
+
 def test_check_needs_both_models(ollama):
     ollama["tags"] = {"models": [{"name": "qwen3:8b"}]}
     assert asyncio.run(llm.check()) is False

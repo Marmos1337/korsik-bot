@@ -282,6 +282,22 @@ def test_step_that_max_keeps_refusing_is_skipped_and_the_day_goes_on(clock, outb
     assert texts(outbox)[-2:] == ["Подсказать, где обедать?", "Вот справочник коллег"]
 
 
+@pytest.mark.parametrize("status", [503, 429, 401])
+def test_step_waits_while_max_is_busy_or_the_token_is_wrong(clock, outbox, monkeypatch, caplog, status):
+    employee_id = linked(clock, outbox, tags="GrPP")
+
+    async def failing(text, **kwargs):
+        raise max_api.MaxError(status, "try later")
+
+    monkeypatch.setattr(max_api, "send_message", failing)
+    clock.now = FIRST_DAY_10
+    for _ in range(10):
+        run(engine.tick())
+
+    assert "10" not in statuses(employee_id)
+    assert [r.getMessage() for r in caplog.records if r.exc_info] == []
+
+
 def test_survey_step_blocks_then_reminds_once_then_is_skipped(clock, outbox):
     employee_id = choose(clock, outbox, at=THIRD_DAY_1730)
     assert texts(outbox) == ["Отлично, Аня, на ты.", "Оцени первые дни"]

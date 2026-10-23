@@ -395,18 +395,20 @@ def read_context(raw: str) -> list[dict]:
 
 
 @app.post("/questions/{escalation_id}/answer")
-async def answer_question(request: Request, escalation_id: int, answer: str = Form(""), employee_id: int = Form(0)):
+async def answer_question(request: Request, escalation_id: int, answer: str = Form(""), employee_id: int = Form(0),
+                          asked_at: str = Form("")):
     answer = answer.strip()
-    # the form names the newcomer too: after /delete the question number may already belong to someone else
+    # the form names the newcomer and the time too: after /delete the question number may go to a new question
     owner = db.query_one("SELECT e.max_user_id FROM escalations q JOIN employees e ON e.id = q.employee_id"
-                         " WHERE q.id = ? AND q.employee_id = ?", (escalation_id, employee_id))
+                         " WHERE q.id = ? AND q.employee_id = ? AND q.created_at = ?",
+                         (escalation_id, employee_id, asked_at))
     if not answer:
         return back(request, "/questions", "Впишите ответ.", bad=True)
     if owner is not None and not owner["max_user_id"]:
         return back(request, "/questions", "Новичок не привязан к боту: удалил свои данные или не открыл "
                                            "ссылку. Ответить некому.", bad=True)
     try:
-        await hr.deliver_answer(escalation_id, answer, "кабинет", employee_id)
+        await hr.deliver_answer(escalation_id, answer, "кабинет", employee_id, asked_at)
     except ValueError as e:
         return back(request, "/questions", str(e), bad=True)
     except Exception as e:

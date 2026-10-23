@@ -42,7 +42,7 @@ def world(monkeypatch):
     async def fake_callback_answer(callback_id, notification=None):
         pass
 
-    async def fake_embed(texts):
+    async def fake_embed(texts, **kwargs):
         return [fake_vector(text) for text in texts]
 
     async def fake_chat(messages, json_mode=False):

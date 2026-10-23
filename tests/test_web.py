@@ -2,6 +2,7 @@ import io
 import json
 import os
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import openpyxl
@@ -396,10 +397,10 @@ def outbox(monkeypatch):
     return sent
 
 
-def add_question(employee_id, question="Где взять пропуск?", context=CONTEXT):
+def add_question(employee_id, question="Где взять пропуск?", context=CONTEXT, created_at=None):
     return db.execute(
         "INSERT INTO escalations (employee_id, question, context, created_at) VALUES (?, ?, ?, ?)",
-        (employee_id, question, json.dumps(context, ensure_ascii=False), db.now_iso()),
+        (employee_id, question, json.dumps(context, ensure_ascii=False), created_at or db.now_iso()),
     )
 
 
@@ -412,14 +413,22 @@ def test_open_question_is_visible_even_without_a_recruiter(admin):
     assert "Вопросы (1)" in page
 
 
-def send_answer(admin, question_id, employee_id, text):
-    return admin.post(f"/questions/{question_id}/answer", data={"answer": text, "employee_id": employee_id})
+def answer_form(admin, question_id):
+    """The hidden fields the questions page puts into the answer form, as a browser would send them."""
+    page = admin.get("/questions").text
+    form = page[page.index(f'action="/questions/{question_id}/answer"'):]
+    return dict(re.findall(r'<input type="hidden" name="(\w+)" value="([^"]*)">', form[:form.index("</form>")]))
+
+
+def send_answer(admin, question_id, text, form=None):
+    data = form if form is not None else answer_form(admin, question_id)
+    return admin.post(f"/questions/{question_id}/answer", data={**data, "answer": text})
 
 
 def test_answer_from_the_cabinet_reaches_the_newcomer(admin, outbox):
     employee_id = add_employee(max_user_id=500)
     question_id = add_question(employee_id)
-    response = send_answer(admin, question_id, employee_id, "Пропуск в бюро пропусков, 2 этаж")
+    response = send_answer(admin, question_id, "Пропуск в бюро пропусков, 2 этаж")
     assert response.status_code == 303 and response.headers["location"] == "/questions"
     assert len(outbox) == 1 and outbox[0]["user_id"] == 500
     assert "Где взять пропуск?" in outbox[0]["text"] and "Пропуск в бюро пропусков, 2 этаж" in outbox[0]["text"]
@@ -434,20 +443,19 @@ def test_answer_from_the_cabinet_reaches_the_newcomer(admin, outbox):
 
 
 def test_second_answer_is_refused_with_who_answered(admin, outbox):
-    employee_id = add_employee(max_user_id=500)
-    question_id = add_question(employee_id)
-    send_answer(admin, question_id, employee_id, "Первый ответ")
-    response = send_answer(admin, question_id, employee_id, "Второй ответ")
+    question_id = add_question(add_employee(max_user_id=500))
+    form = answer_form(admin, question_id)
+    send_answer(admin, question_id, "Первый ответ", form)
+    response = send_answer(admin, question_id, "Второй ответ", form)
     assert "На этот вопрос уже ответили (кабинет)" in admin.get(response.headers["location"]).text
     assert len(outbox) == 1
 
 
 def test_missing_question_and_empty_answer_are_messages(admin, outbox):
-    employee_id = add_employee(max_user_id=500)
-    gone = send_answer(admin, 999, employee_id, "Привет")
+    gone = send_answer(admin, 999, "Привет", form={})
     assert hr.QUESTION_GONE in admin.get(gone.headers["location"]).text
-    question_id = add_question(employee_id)
-    empty = send_answer(admin, question_id, employee_id, "   ")
+    question_id = add_question(add_employee(max_user_id=500))
+    empty = send_answer(admin, question_id, "   ")
     assert "Впишите ответ" in admin.get(empty.headers["location"]).text
     assert outbox == [] and db.query_one("SELECT status FROM escalations")["status"] == "open"
 
@@ -457,9 +465,8 @@ def test_answer_that_max_did_not_take_leaves_the_question_open(admin, monkeypatc
         raise max_api.MaxError(503, "unavailable")
 
     monkeypatch.setattr(max_api, "send_message", broken_send)
-    employee_id = add_employee(max_user_id=500)
-    question_id = add_question(employee_id)
-    response = send_answer(admin, question_id, employee_id, "Ответ")
+    question_id = add_question(add_employee(max_user_id=500))
+    response = send_answer(admin, question_id, "Ответ")
     assert response.status_code == 303
     page = admin.get(response.headers["location"]).text
     assert "Не получилось отправить" in page and "Где взять пропуск?" in page
@@ -467,9 +474,8 @@ def test_answer_that_max_did_not_take_leaves_the_question_open(admin, monkeypatc
 
 
 def test_question_of_a_newcomer_who_left_the_bot_cannot_be_answered(admin, outbox):
-    employee_id = add_employee(max_user_id=None)
-    question_id = add_question(employee_id)
-    response = send_answer(admin, question_id, employee_id, "Ответ")
+    question_id = add_question(add_employee(max_user_id=None))
+    response = send_answer(admin, question_id, "Ответ")
     assert "не привязан" in admin.get(response.headers["location"]).text
     assert outbox == [] and db.query_one("SELECT status FROM escalations")["status"] == "open"
 
@@ -477,12 +483,27 @@ def test_question_of_a_newcomer_who_left_the_bot_cannot_be_answered(admin, outbo
 def test_answer_from_an_old_page_does_not_reach_the_next_owner_of_the_number(admin, outbox):
     anna = add_employee(max_user_id=500)
     question_id = add_question(anna)
-    form = re.search(r'name="employee_id" value="(\d+)"', admin.get("/questions").text)
+    form = answer_form(admin, question_id)
     engine.delete_employee_data(anna)
     ivan = add_employee("Петров Иван", max_user_id=501, code="ivan")
     assert add_question(ivan, "Где парковка?") == question_id
 
-    response = send_answer(admin, question_id, form.group(1), "Пропуск у охраны")
+    response = send_answer(admin, question_id, "Пропуск у охраны", form)
+
+    assert hr.QUESTION_GONE in admin.get(response.headers["location"]).text
+    assert outbox == [] and db.query_one("SELECT status FROM escalations")["status"] == "open"
+
+
+def test_answer_from_an_old_page_does_not_close_the_same_newcomers_next_question(admin, outbox):
+    anna = add_employee(max_user_id=500)
+    question_id = add_question(anna)
+    form = answer_form(admin, question_id)
+    engine.delete_employee_data(anna)
+    db.execute("UPDATE employees SET max_user_id = 500, linked_at = ? WHERE id = ?", (db.now_iso(), anna))
+    a_minute_later = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat(timespec="seconds")
+    assert add_question(anna, "Где парковка?", created_at=a_minute_later) == question_id
+
+    response = send_answer(admin, question_id, "Пропуск у охраны", form)
 
     assert hr.QUESTION_GONE in admin.get(response.headers["location"]).text
     assert outbox == [] and db.query_one("SELECT status FROM escalations")["status"] == "open"

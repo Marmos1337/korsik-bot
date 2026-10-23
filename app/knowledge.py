@@ -2,6 +2,7 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +22,7 @@ CHUNK_SIZE = 1000
 TOP_K = 8
 RRF_K = 60
 EMBED_BATCH = 16
+EMBED_PAUSE = timedelta(minutes=5)  # after a failed batch, before the next try
 OCR_DPI = 300
 HR_ANSWERS_TITLE = "Ответы HR"
 
@@ -336,6 +338,9 @@ def delete_document(doc_id: int) -> None:
 
 async def embed_missing() -> int:
     """Computes vectors for chunks stored while the model was away. Returns how many were done."""
+    # the watch loop calls this every minute, and a batch that timed out would only time out again
+    if (db.kv_get("embed_retry_at") or "") > db.now_iso():
+        return 0
     done = 0
     while True:
         rows = db.query(
@@ -348,8 +353,10 @@ async def embed_missing() -> int:
                 log.info("%d chunks embedded", done)
             return done
         try:
-            vectors = await llm.embed([f"{row['title']}\n{row['text']}" for row in rows])
+            vectors = await llm.embed([f"{row['title']}\n{row['text']}" for row in rows], mark_down=False)
         except llm.LLMUnavailable:
+            retry_at = datetime.now(timezone.utc) + EMBED_PAUSE
+            db.kv_set("embed_retry_at", retry_at.isoformat(timespec="seconds"))
             log.info("embeddings postponed, %d done so far", done)
             return done
         conn = db.connect()

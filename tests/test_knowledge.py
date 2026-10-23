@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import pymupdf
 import pytest
@@ -15,7 +16,7 @@ from app import db, knowledge, llm
 def ollama_off(monkeypatch):
     """By default the model is switched off: every embed call fails like a sleeping Mac."""
 
-    async def down(texts):
+    async def down(texts, **kwargs):
         raise llm.LLMUnavailable("off")
 
     monkeypatch.setattr(llm, "embed", down)
@@ -26,7 +27,7 @@ def ollama_off(monkeypatch):
 def ollama_on(monkeypatch):
     """A fake embedding: texts about food point one way, everything else the other way."""
 
-    async def fake_embed(texts):
+    async def fake_embed(texts, **kwargs):
         food = ("столов", "поесть", "обед")
         return [[1.0, 0.0] if any(w in t.lower() for w in food) else [0.0, 1.0] for t in texts]
 
@@ -199,13 +200,32 @@ def test_embeddings_are_filled_later_when_the_model_returns(tmp_path, monkeypatc
     add(tmp_path, "food.md", "Столовая открыта в будни.")
     assert db.query_one("SELECT COUNT(*) AS n FROM chunks WHERE embedding IS NULL")["n"] == 1
 
-    async def fake_embed(texts):
+    async def fake_embed(texts, **kwargs):
         return [[0.5, 0.5] for _ in texts]
 
     monkeypatch.setattr(llm, "embed", fake_embed)
 
     assert asyncio.run(knowledge.embed_missing()) == 1
     assert db.query_one("SELECT COUNT(*) AS n FROM chunks WHERE embedding IS NULL")["n"] == 0
+
+
+def test_failed_embedding_is_retried_after_a_pause_without_switching_the_mode(tmp_path, monkeypatch):
+    add(tmp_path, "food.md", "Столовая открыта в будни.")
+    tries = []
+
+    async def timing_out(texts, mark_down=True):
+        tries.append(mark_down)
+        raise llm.LLMUnavailable("timeout")
+
+    monkeypatch.setattr(llm, "embed", timing_out)
+    assert asyncio.run(knowledge.embed_missing()) == 0
+    assert asyncio.run(knowledge.embed_missing()) == 0
+    assert tries == [False]
+
+    later = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(timespec="seconds")
+    monkeypatch.setattr(db, "now_iso", lambda: later)
+    asyncio.run(knowledge.embed_missing())
+    assert tries == [False, False]
 
 
 def test_loading_the_same_file_again_replaces_the_document(tmp_path):

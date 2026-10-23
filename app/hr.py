@@ -107,18 +107,21 @@ async def _tell_employee(employee, reason: str) -> None:
             await messaging.send_to_employee(employee, f"{text}\n\n{extra}" if extra else text)
 
 
-async def deliver_answer(escalation_id: int, answer: str, answered_by: str, employee_id: int) -> None:
+async def deliver_answer(escalation_id: int, answer: str, answered_by: str, employee_id: int,
+                         asked_at: str) -> None:
     """Sends the HR answer to the employee and closes the question. Also used by the admin pages.
 
     ValueError with a text for people: the question is gone or somebody has answered it already.
     """
-    # sqlite gives the id of a deleted question to the next one, so the caller also names whose question it means
-    row = _question(escalation_id, employee_id)
+    # sqlite gives the id of a deleted question to the next one, even to the same newcomer after /delete,
+    # so the caller also names whose question it means and when it was asked
+    key = (escalation_id, employee_id, asked_at)
+    row = _question(*key)
     if row is None:
         raise ValueError(QUESTION_GONE)
     answer = answer.strip()
-    if not _claim(escalation_id, employee_id, answer, answered_by):
-        row = _question(escalation_id, employee_id)
+    if not _claim(*key, answer, answered_by):
+        row = _question(*key)
         raise ValueError(_answered_by(row) if row else QUESTION_GONE)
     try:
         employee = db.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
@@ -128,25 +131,26 @@ async def deliver_answer(escalation_id: int, answer: str, answered_by: str, empl
     except Exception:
         # the employee got nothing: the question goes back to open and can be answered again
         db.execute("UPDATE escalations SET status = 'open', answer = NULL, answered_by = NULL, answered_at = NULL"
-                   " WHERE id = ?", (escalation_id,))
+                   " WHERE id = ? AND employee_id = ? AND created_at = ? AND status = 'answered'", key)
         raise
     messaging.log_message(employee["id"], "hr", text)
     log.info("escalation %s answered", escalation_id)
 
 
-def _question(escalation_id: int, employee_id: int):
-    return db.query_one("SELECT * FROM escalations WHERE id = ? AND employee_id = ?", (escalation_id, employee_id))
+def _question(escalation_id: int, employee_id: int, asked_at: str):
+    return db.query_one("SELECT * FROM escalations WHERE id = ? AND employee_id = ? AND created_at = ?",
+                        (escalation_id, employee_id, asked_at))
 
 
-def _claim(escalation_id: int, employee_id: int, answer: str, answered_by: str) -> bool:
+def _claim(escalation_id: int, employee_id: int, asked_at: str, answer: str, answered_by: str) -> bool:
     """Closes an open question in one statement: two recruiters may press «Ответить» at the same time."""
     conn = db.connect()
     try:
         with conn:
             cursor = conn.execute(
                 "UPDATE escalations SET status = 'answered', answer = ?, answered_by = ?, answered_at = ?"
-                " WHERE id = ? AND employee_id = ? AND status = 'open'",
-                (answer, answered_by, db.now_iso(), escalation_id, employee_id),
+                " WHERE id = ? AND employee_id = ? AND created_at = ? AND status = 'open'",
+                (answer, answered_by, db.now_iso(), escalation_id, employee_id, asked_at),
             )
         return cursor.rowcount == 1
     finally:
@@ -209,7 +213,8 @@ async def _on_button(recruiter, payload: str, in_hr_chat: bool) -> None:
         if escalation["status"] == "answered":
             await _to_recruiter(recruiter, _answered_by(escalation))
             return
-        db.kv_set(_wait_key(recruiter), f"{escalation_id} {escalation['employee_id']} {db.now_iso()}")
+        db.kv_set(_wait_key(recruiter),
+                  f"{escalation_id} {escalation['employee_id']} {escalation['created_at']} {db.now_iso()}")
         await _to_recruiter(
             recruiter,
             f"Напишите ответ на вопрос «{_cut(escalation['question'], 200)}» следующим сообщением, "
@@ -243,9 +248,9 @@ async def _on_text(recruiter, text: str) -> None:
         await _to_recruiter(recruiter, "Хорошо, ответ отменён.")
     elif waiting is not None and text and not command:
         db.kv_set(_wait_key(recruiter), "")
-        escalation_id, employee_id = waiting
+        escalation_id, employee_id, asked_at = waiting
         try:
-            await deliver_answer(escalation_id, text, recruiter["name"], employee_id)
+            await deliver_answer(escalation_id, text, recruiter["name"], employee_id, asked_at)
         except ValueError as e:
             await _to_recruiter(recruiter, str(e))
             return
@@ -264,14 +269,14 @@ async def _on_text(recruiter, text: str) -> None:
         await _to_recruiter(recruiter, RECRUITER_HELP)
 
 
-def _waiting_for(recruiter) -> tuple[int, int] | None:
-    """(question id, newcomer id) this recruiter pressed «Ответить» on, if it was less than a day ago."""
+def _waiting_for(recruiter) -> tuple[int, int, str] | None:
+    """(id, newcomer, asked at) of the question the recruiter pressed «Ответить» on less than a day ago."""
     parts = (db.kv_get(_wait_key(recruiter)) or "").split()
-    if len(parts) != 3 or not parts[0].isdigit() or not parts[1].isdigit():
+    if len(parts) != 4 or not parts[0].isdigit() or not parts[1].isdigit():
         return None
-    if datetime.now(timezone.utc) - datetime.fromisoformat(parts[2]) > WAIT_LIMIT:
+    if datetime.now(timezone.utc) - datetime.fromisoformat(parts[3]) > WAIT_LIMIT:
         return None
-    return int(parts[0]), int(parts[1])
+    return int(parts[0]), int(parts[1]), parts[2]
 
 
 def _in_hr_chat(update: dict) -> bool:

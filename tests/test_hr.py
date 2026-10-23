@@ -88,6 +88,10 @@ def payloads(message):
     return [b["payload"] for row in message["buttons"] or [] for b in row]
 
 
+def asked_at(escalation_id):
+    return db.query_one("SELECT created_at FROM escalations WHERE id = ?", (escalation_id,))["created_at"]
+
+
 def to(outbox, **who):
     return [m for m in outbox if all(m[k] == v for k, v in who.items())]
 
@@ -343,7 +347,8 @@ def test_second_answer_to_an_answered_question_is_not_sent(outbox, monkeypatch):
     assert [m["text"] for m in to(outbox, user_id=701)] == ["На этот вопрос уже ответили (Ольга)."]
     assert db.query_one("SELECT answer FROM escalations WHERE id = ?", (escalation_id,))[0] == "Пропуск выдаёт охрана."
     with pytest.raises(ValueError, match="Ольга"):
-        run(hr.deliver_answer(escalation_id, "Ответ из кабинета", "HR", employee["id"]))
+        run(hr.deliver_answer(escalation_id, "Ответ из кабинета", "HR", employee["id"],
+                              asked_at(escalation_id)))
 
 
 def test_waiting_for_the_answer_ends_after_a_day(outbox, monkeypatch):
@@ -404,6 +409,26 @@ def test_answer_to_a_deleted_question_does_not_reach_the_next_owner_of_its_numbe
     run(hr.handle_recruiter_update(olga, text_message("Пропуск выдаёт охрана.")))
 
     assert to(outbox, user_id=501) == []
+    assert [m["text"] for m in outbox] == [hr.QUESTION_GONE]
+    assert db.query_one("SELECT status FROM escalations WHERE id = ?", (second,))["status"] == "open"
+
+
+def test_answer_to_a_deleted_question_does_not_close_the_same_newcomers_next_one(outbox, monkeypatch):
+    olga = add_recruiter()
+    anna = add_employee(olga["id"])
+    first = run(hr.escalate(anna, "Где взять пропуск?", "no_answer"))
+    run(hr.handle_recruiter_update(olga, callback(f"esc:reply:{first}")))
+    engine.delete_employee_data(anna["id"])
+    db.execute("UPDATE employees SET max_user_id = 500, linked_at = ? WHERE id = ?", (db.now_iso(), anna["id"]))
+    a_minute_later = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat(timespec="seconds")
+    monkeypatch.setattr(db, "now_iso", lambda: a_minute_later)
+    second = run(hr.escalate(anna, "Где парковка?", "no_answer"))
+    assert second == first
+    outbox.clear()
+
+    run(hr.handle_recruiter_update(olga, text_message("Пропуск выдаёт охрана.")))
+
+    assert to(outbox, user_id=500) == []
     assert [m["text"] for m in outbox] == [hr.QUESTION_GONE]
     assert db.query_one("SELECT status FROM escalations WHERE id = ?", (second,))["status"] == "open"
 

@@ -18,6 +18,9 @@ REMIND_AFTER = timedelta(hours=24)
 SKIP_AFTER = timedelta(hours=48)
 LATE_LIMIT = timedelta(hours=24)  # a step this late at the moment of linking is not sent at all
 SEND_TRIES = 3  # refusals from MAX in a row before a step is given up, e.g. the newcomer blocked the bot
+# only these say that MAX will not deliver to this newcomer; a bad token (401), 429 and 5xx concern
+# everybody at once and pass with time, so on those the step just waits for the next tick
+RECIPIENT_REFUSALS = (403, 404)
 
 SURVEY = ("опрос", "шкала", "текст")
 # a «вопрос» only offers optional branches: its buttons stay, but the next steps do not wait for it
@@ -254,8 +257,7 @@ async def _send_due(employee, now: datetime) -> int:
 
 async def _send_failed(employee, step: Step, error: max_api.MaxError) -> None:
     key = (employee["id"], step.id)
-    # 5xx and 429 mean MAX is busy, not that it refuses this newcomer, so the step just waits for the next tick
-    if error.status < 500 and error.status != 429:
+    if error.status in RECIPIENT_REFUSALS:
         _refusals[key] = _refusals.get(key, 0) + 1
     if _refusals.get(key, 0) < SEND_TRIES:
         log.warning("employee %s: step %s not sent, will try again: %s", employee["id"], step.id, error)

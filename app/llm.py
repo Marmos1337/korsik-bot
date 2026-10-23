@@ -32,14 +32,15 @@ def _mark(up: bool) -> None:
     _up = up
 
 
-async def _post(path: str, body: dict, timeout: float) -> dict:
+async def _post(path: str, body: dict, timeout: float, mark_down: bool = True) -> dict:
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(cfg.OLLAMA_URL + path, json=body)
             response.raise_for_status()
             return response.json()
     except (httpx.HTTPError, ValueError) as e:
-        _mark(False)
+        if mark_down:
+            _mark(False)
         raise LLMUnavailable(f"{path}: {type(e).__name__}") from e
 
 
@@ -59,11 +60,13 @@ async def chat(messages: list[dict], json_mode: bool = False) -> str:
     return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
 
 
-async def embed(texts: list[str]) -> list[list[float]]:
-    data = await _post("/api/embed", {"model": cfg.EMBED_MODEL, "input": texts}, EMBED_TIMEOUT)
+async def embed(texts: list[str], mark_down: bool = True) -> list[list[float]]:
+    """mark_down=False is for background work: a slow batch there does not mean the model is gone."""
+    data = await _post("/api/embed", {"model": cfg.EMBED_MODEL, "input": texts}, EMBED_TIMEOUT, mark_down)
     vectors = data.get("embeddings") or []
     if len(vectors) != len(texts):
-        _mark(False)
+        if mark_down:
+            _mark(False)
         raise LLMUnavailable(f"/api/embed returned {len(vectors)} vectors for {len(texts)} texts")
     return vectors
 
