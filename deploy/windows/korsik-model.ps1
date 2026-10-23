@@ -33,6 +33,7 @@ $shared = [hashtable]::Synchronized(@{
     Models = ""
     Gpu = ""
     Ip = ""
+    StopFailed = $false
     CloseAfterStop = $false
     CloseNow = $false
     Quit = $false
@@ -128,9 +129,11 @@ $workerScript = {
 
         $left = @(Stop-Ollama)
         if ($left.Count -gt 0) {
+            $shared.StopFailed = $true
             Set-Error "Не получилось закрыть старые процессы Ollama. Скорее всего, их запустили от имени администратора: закрой их в диспетчере задач."
             return
         }
+        $shared.StopFailed = $false
 
         $server = Start-OllamaServer $ollama "0.0.0.0:$port"
         if (-not (Wait-Ollama $server 60)) {
@@ -140,10 +143,16 @@ $workerScript = {
         }
         Add-Log "Ollama запущена."
 
-        $missing = @(Get-MissingModels @($chatModel, $embedModel))
+        try {
+            $missing = @(Get-MissingModels @($chatModel, $embedModel))
+        } catch {
+            $null = Stop-Ollama
+            Set-Error "Ollama не отдала список моделей: $($_.Exception.Message)"
+            return
+        }
         if ($missing.Count -gt 0) {
             $null = Stop-Ollama
-            Set-Error "На компьютере нет модели $($missing -join ', '). Запусти setup-ollama.ps1, он её скачает."
+            Set-Error "На компьютере нет модели $($missing -join ', '). Запусти pull-models.ps1 -ChatModel $chatModel, он её скачает."
             return
         }
 
@@ -189,14 +198,27 @@ $workerScript = {
         }
         $left = @(Stop-Ollama)
         if ($left.Count -gt 0) {
+            $shared.StopFailed = $true
             Set-Error "Не получилось остановить процессы Ollama ($($left -join ', ')). Скорее всего, их запустили от имени администратора: закрой их в диспетчере задач."
             return $false
         }
+        $shared.StopFailed = $false
         $shared.State = "off"
         $shared.Models = "не загружены"
         $shared.Note = "Видеокарта свободна, бот работает в упрощённом режиме."
         Add-Log "Модель выключена, все процессы Ollama остановлены."
         return $true
+    }
+
+    function Stop-UnprotectedModel($problem) {
+        $shared.Busy = $true
+        Add-Log "Брандмауэр больше не закрывает порт модели, выключаю её."
+        if (Stop-Model) {
+            Set-Error "Модель выключена: $problem"
+        } else {
+            Add-Log "Причина выключения: $problem"
+        }
+        $shared.Busy = $false
     }
 
     if (Test-Elevated) {
@@ -210,6 +232,7 @@ $workerScript = {
     $shared.Busy = $false
 
     $nextRefresh = (Get-Date).AddSeconds(5)
+    $nextRuleCheck = Get-Date
     while (-not $shared.Quit) {
         $command = $shared.Command
         if ($command) {
@@ -239,6 +262,23 @@ $workerScript = {
                 Update-Status
             } catch {
                 Add-Log "Не получилось обновить состояние: $($_.Exception.Message)"
+            }
+            # Someone may turn the firewall off while the model listens on all addresses.
+            # Reading the rules is slow, so they are checked once a minute, the profiles every time.
+            if (-not $shared.Busy -and $shared.State -eq "running") {
+                $withRules = (Get-Date) -ge $nextRuleCheck
+                if ($withRules) {
+                    $nextRuleCheck = (Get-Date).AddMinutes(1)
+                }
+                $problem = Get-FirewallProblem -WithRules:$withRules
+                if ($problem) {
+                    try {
+                        Stop-UnprotectedModel $problem
+                    } catch {
+                        Set-Error "Не получилось выключить модель: $($_.Exception.Message)"
+                        $shared.Busy = $false
+                    }
+                }
             }
             $nextRefresh = (Get-Date).AddSeconds(5)
         }
@@ -452,6 +492,15 @@ $form.Add_FormClosing({
         return
     }
     if (@(Get-Process -Name "ollama*" -ErrorAction SilentlyContinue).Count -eq 0) { return }
+
+    if ($shared.StopFailed -and -not $script:workerFailed) {
+        $text = "Ollama не остановилась, причина в журнале окна. Закрыть окно, не выключая модель?`r`n`r`nОна продолжит работать и занимать видеокарту, пока её не закрыть в диспетчере задач или не перезагрузить компьютер."
+        $answer = [System.Windows.Forms.MessageBox]::Show($text, $title, "YesNo", "Warning", "Button2")
+        if ([string]$answer -ne "Yes") {
+            $closing.Cancel = $true
+        }
+        return
+    }
 
     $answer = [System.Windows.Forms.MessageBox]::Show("Выключить модель и закрыть окно?", $title, "YesNo", "Question")
     if ([string]$answer -ne "Yes") {

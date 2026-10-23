@@ -1,4 +1,4 @@
-﻿# Shared parts of setup-ollama.ps1, korsik-model.ps1 and check-ollama.ps1.
+﻿# Shared parts of setup-ollama.ps1, pull-models.ps1, korsik-model.ps1 and check-ollama.ps1.
 # Loaded with ". .\common.ps1", it does nothing on its own.
 
 $port = 11434

@@ -57,14 +57,20 @@ if (-not (Test-OllamaUp)) {
 $version = (Invoke-RestMethod -Uri "$localUrl/api/version" -TimeoutSec 5).version
 Write-Host "Версия Ollama: $version"
 
-$tags = Invoke-RestMethod -Uri "$localUrl/api/tags" -TimeoutSec 10
-Write-Host "Модели на компьютере:"
-foreach ($model in $tags.models) {
-    Write-Host ("  {0}, {1} ГБ" -f $model.name, [math]::Round($model.size / 1GB, 1))
-}
-$missing = @(Get-MissingModels @($ChatModel, $EmbedModel))
-foreach ($model in $missing) {
-    $problems += "Нет модели $model. Запусти setup-ollama.ps1 с теми же именами моделей, он её скачает."
+try {
+    $tags = Invoke-RestMethod -Uri "$localUrl/api/tags" -TimeoutSec 10
+    Write-Host "Модели на компьютере:"
+    foreach ($model in $tags.models) {
+        Write-Host ("  {0}, {1} ГБ" -f $model.name, [math]::Round($model.size / 1GB, 1))
+    }
+    $missing = @(Get-MissingModels @($ChatModel, $EmbedModel))
+    foreach ($model in $missing) {
+        $problems += "Нет модели $model. Запусти pull-models.ps1 -ChatModel $ChatModel, он её скачает."
+    }
+} catch {
+    $problems += "Ollama не отдала список моделей: $($_.Exception.Message)"
+    # Without the list the model tests below would only repeat the same error.
+    $missing = @($ChatModel, $EmbedModel)
 }
 
 if (Test-WideListener) {

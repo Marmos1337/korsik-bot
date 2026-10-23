@@ -1,10 +1,9 @@
-﻿# Installs Ollama and Tailscale, closes port 11434 to everything except Tailscale,
-# downloads the models and puts the "Корсик модель" shortcut on the desktop.
+﻿# Installs Ollama and Tailscale, removes Ollama from autostart and closes port 11434
+# to everything except Tailscale. Models are downloaded later by pull-models.ps1,
+# which runs without administrator rights.
 # Needs administrator rights, the command that asks for them is in README.md.
 # Safe to run again: what is already done is skipped or set to the same values.
 param(
-    [string]$ChatModel = "qwen3:14b",
-    [string]$EmbedModel = "bge-m3",
     [switch]$NoSleep,
     [string]$LogPath
 )
@@ -50,7 +49,8 @@ function Install-WithWinget($id, $title) {
         Fail "Не нашёл winget, поэтому не могу поставить $title. Поставь 'Установщик приложений' из Microsoft Store или установи $title вручную, потом запусти скрипт снова."
     }
     Write-Host "Ставлю $title через winget, это займёт пару минут..."
-    winget install --id $id --exact --silent --accept-package-agreements --accept-source-agreements
+    # Through Out-Host, otherwise Start-Transcript in PowerShell 5.1 does not see the output.
+    winget install --id $id --exact --silent --accept-package-agreements --accept-source-agreements | Out-Host
     if ($LASTEXITCODE -ne 0) {
         Write-Host "winget вернул код $LASTEXITCODE, смотрю, встала ли программа." -ForegroundColor Yellow
     }
@@ -79,7 +79,7 @@ if (-not (Test-Elevated)) {
     Fail "Нужны права администратора. Запусти скрипт командой из README (шаг 2): Windows спросит разрешение, человек нажмёт 'Да'."
 }
 
-# Ollama goes into the user's profile, the shortcut onto the user's desktop.
+# Ollama installs into the user's profile, and the firewall rules point at that ollama.exe.
 # If UAC was confirmed with another account's password, both would end up in the wrong place.
 $session = (Get-Process -Id $PID).SessionId
 $explorer = Get-CimInstance Win32_Process -Filter "Name = 'explorer.exe' AND SessionId = $session" -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -204,64 +204,28 @@ if ($adapter) {
     Write-Host "Адаптер Tailscale не нашёлся, поэтому порт $port открыт для $tailscaleRange на любом адаптере. После входа в Tailscale запусти скрипт ещё раз, он привяжет правило к адаптеру." -ForegroundColor Yellow
 }
 
-# Models are downloaded through a temporary server that listens on this computer only.
-Write-Host "Запускаю Ollama на время скачивания моделей, только на 127.0.0.1."
-$server = Start-OllamaServer $ollama "127.0.0.1:$port"
-if (-not (Wait-Ollama $server 60)) {
-    $null = Stop-Ollama
-    Fail "Ollama не запустилась за минуту. Последние строки её журнала: $(Get-ServerLogTail)"
-}
-$missing = @(Get-MissingModels @($ChatModel, $EmbedModel))
-foreach ($model in @($ChatModel, $EmbedModel)) {
-    if ($missing -notcontains $model) {
-        Write-Host "Модель $model уже скачана."
-        continue
-    }
-    Write-Host "Скачиваю $model, это может занять много минут..."
-    & $ollama pull $model
-    if ($LASTEXITCODE -ne 0) {
-        $null = Stop-Ollama
-        Fail "Не получилось скачать $model. Проверь интернет и запусти скрипт ещё раз, докачка продолжится."
-    }
-    Write-Host "Скачал $model."
-}
-$left = @(Stop-Ollama)
-if ($left.Count -gt 0) {
-    Fail "Не получилось остановить Ollama после скачивания ($($left -join ', ')). Закрой её в диспетчере задач."
-}
-Write-Host "Остановил Ollama. Дальше модель включается кнопкой в окне."
-
-$icon = Join-Path (Split-Path $ollama) "ollama app.exe"
-if (-not (Test-Path $icon)) {
-    $icon = $ollama
-}
-$linkPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "Корсик модель.lnk"
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($linkPath)
-# wscript runs korsik-model.vbs, which starts the window without a console.
-$shortcut.TargetPath = "$env:SystemRoot\System32\wscript.exe"
-$shortcut.Arguments = "`"$PSScriptRoot\korsik-model.vbs`" -ChatModel $ChatModel -EmbedModel $EmbedModel"
-$shortcut.WorkingDirectory = $PSScriptRoot
-$shortcut.IconLocation = "$icon,0"
-$shortcut.Description = "Включить или выключить модель для бота Корсик"
-$shortcut.Save()
-Write-Host "Ярлык на рабочем столе: $linkPath"
-
 if ($NoSleep) {
     powercfg /change standby-timeout-ac 0
     powercfg /change hibernate-timeout-ac 0
     Write-Host "Сон и гибернация при питании от сети отключены."
 }
 
+# The Ollama installer can start its app a little late. Everything started from here runs
+# as administrator, and the window, which runs as a normal user, could not stop it.
+$left = @(Stop-Ollama)
+if ($left.Count -gt 0) {
+    Fail "Не получилось остановить Ollama ($($left -join ', ')). Закрой её в диспетчере задач и запусти скрипт снова."
+}
+
 $ip = Get-TailscaleIp $tailscale
 Write-Host ""
-Write-Host "Установка закончена. Модель выключена, её включают ярлыком 'Корсик модель' на рабочем столе."
+Write-Host "Установка закончена, Ollama не запущена."
 if ($ip) {
     Write-Host "Tailscale подключен, адрес этого компьютера: $ip"
 } else {
     Write-Host "Tailscale ещё не подключен. Человек должен войти: значок Tailscale возле часов, Log in, аккаунт команды." -ForegroundColor Yellow
 }
-Write-Host "Проверка: check-ollama.ps1, права администратора для неё не нужны."
+Write-Host "Дальше без прав администратора: pull-models.ps1 скачает модели и положит на рабочий стол ярлык 'Корсик модель'."
 
 if ($LogPath) {
     Stop-Transcript | Out-Null
