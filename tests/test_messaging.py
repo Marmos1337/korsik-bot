@@ -100,6 +100,42 @@ def test_missing_image_is_skipped(sent, uploads):
     assert [(c["text"], c["image_token"]) for c in sent] == [("Текст без картинки", None)]
 
 
+@pytest.mark.parametrize("error", [KeyError("url"), OSError("disk"), ValueError("not json")])
+def test_any_upload_error_still_sends_text(sent, monkeypatch, error):
+    employee = make_employee()
+    (Path(cfg.DATA_DIR) / "images").mkdir()
+    (Path(cfg.DATA_DIR) / "images" / "map.png").write_bytes(b"png")
+
+    async def broken_upload(path):
+        raise error
+
+    monkeypatch.setattr(max_api, "upload_image", broken_upload)
+
+    asyncio.run(messaging.send_to_employee(employee, "Схема проезда", image="map.png"))
+
+    assert [(c["text"], c["image_token"]) for c in sent] == [("Схема проезда", None)]
+
+
+def test_rejected_image_is_dropped_and_text_resent(monkeypatch):
+    employee = make_employee()
+    db.kv_set("img:old.png", "stale-token")
+    calls = []
+
+    async def picky_send(text, user_id=None, chat_id=None, buttons=None, image_token=None):
+        calls.append(image_token)
+        if image_token:
+            raise max_api.MaxError(400, "attachment token is invalid")
+        return {}
+
+    monkeypatch.setattr(max_api, "send_message", picky_send)
+
+    asyncio.run(messaging.send_to_employee(employee, "Открытка", image="old.png"))
+
+    assert calls == ["stale-token", None]
+    assert not db.kv_get("img:old.png")
+    assert logged(employee["id"]) == [("bot", "Открытка")]
+
+
 def test_image_name_cannot_leave_images_folder(sent, uploads):
     employee = make_employee()
     (Path(cfg.DATA_DIR) / "images").mkdir()

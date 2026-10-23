@@ -1,8 +1,6 @@
 import logging
 from pathlib import Path
 
-import httpx
-
 from app import db, max_api
 from app.config import cfg
 
@@ -48,23 +46,26 @@ def split_text(text: str, limit: int = MAX_TEXT) -> list[str]:
     return parts
 
 
-async def image_token(name: str) -> str | None:
+def image_key(name: str) -> str:
     # only a bare file name: the name comes from the scenario sheet and must not point outside data/images
-    name = Path(name).name
-    key = f"img:{name}"
-    token = db.kv_get(key)
+    return "img:" + Path(name).name
+
+
+async def image_token(name: str) -> str | None:
+    token = db.kv_get(image_key(name))
     if token:
         return token
+    name = Path(name).name
     path = Path(cfg.DATA_DIR) / "images" / name
     if not path.is_file():
         log.warning("image %s not found, sending text only", name)
         return None
     try:
         token = await max_api.upload_image(str(path))
-    except (max_api.MaxError, httpx.HTTPError) as e:
+    except Exception as e:  # a picture is optional, whatever breaks here the step text still goes out
         log.warning("image %s upload failed: %s", name, e)
         return None
-    db.kv_set(key, token)
+    db.kv_set(image_key(name), token)
     return token
 
 
@@ -72,15 +73,21 @@ async def send_to_employee(employee, text: str, buttons=None, image: str | None 
     if not employee["max_user_id"]:
         log.warning("employee %s has no MAX account linked yet", employee["id"])
         return
+    user_id = employee["max_user_id"]
     token = await image_token(image) if image else None
     parts = split_text(text) or [""]
     for i, part in enumerate(parts):
-        await max_api.send_message(
-            part,
-            user_id=employee["max_user_id"],
-            buttons=buttons if i == len(parts) - 1 else None,
-            image_token=token if i == 0 else None,
-        )
+        keyboard = buttons if i == len(parts) - 1 else None
+        if i == 0 and token:
+            try:
+                await max_api.send_message(part, user_id=user_id, buttons=keyboard, image_token=token)
+            except max_api.MaxError as e:
+                # a cached token can go stale on the MAX side: forget it and send the text alone
+                log.warning("image %s rejected (%s), sending text only", image, e)
+                db.kv_set(image_key(image), "")
+                await max_api.send_message(part, user_id=user_id, buttons=keyboard)
+        else:
+            await max_api.send_message(part, user_id=user_id, buttons=keyboard)
         log_message(employee["id"], "bot", part)
 
 

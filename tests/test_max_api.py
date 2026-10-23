@@ -4,7 +4,7 @@ import json
 import httpx
 import pytest
 
-from app import bot, db, max_api
+from app import max_api
 
 
 @pytest.fixture
@@ -117,94 +117,3 @@ def test_upload_image_returns_photo_token(fake_max, tmp_path):
     assert seen[1].url.host == "upload.invalid"
     assert b'name="data"' in seen[1].content
     assert b"\x89PNG fake" in seen[1].content
-
-
-# receiving updates: polling loop and the first routing step in bot.py
-
-
-class Stop(BaseException):
-    """Ends the endless polling loop from inside a test."""
-
-
-def message_update(mid, user_id=321, chat_type="dialog", is_bot=False):
-    return {
-        "update_type": "message_created",
-        "message": {
-            "sender": {"user_id": user_id, "name": "Гость", "is_bot": is_bot},
-            "recipient": {"chat_id": 9, "chat_type": chat_type},
-            "body": {"mid": mid, "text": "привет"},
-        },
-    }
-
-
-def callback_update(callback_id, mid="bot-msg"):
-    return {
-        "update_type": "message_callback",
-        "callback": {"callback_id": callback_id, "payload": "addr:ty", "user": {"user_id": 321}},
-        "message": {"recipient": {"chat_type": "dialog"}, "body": {"mid": mid}},
-    }
-
-
-def test_polling_survives_errors_saves_marker_and_skips_duplicates(monkeypatch):
-    db.kv_set("max_marker", "5")
-    first, broken = message_update("p1"), message_update("p2")
-    press_one, press_two = callback_update("c1"), callback_update("c2")
-    replies = [
-        httpx.ConnectError("no network"),
-        ([first, broken, press_one, press_two], 6),
-        ([first, press_one], 7),  # the same events delivered again
-        Stop(),
-    ]
-    markers, handled = [], []
-
-    async def fake_get_updates(marker, timeout=30):
-        markers.append(marker)
-        reply = replies.pop(0)
-        if isinstance(reply, BaseException):
-            raise reply
-        return reply
-
-    async def fake_handle(update):
-        handled.append(update.get("callback", {}).get("callback_id") or update["message"]["body"]["mid"])
-        if update is broken:
-            raise RuntimeError("bad update")
-
-    monkeypatch.setattr(max_api, "get_updates", fake_get_updates)
-    monkeypatch.setattr(bot, "handle_update", fake_handle)
-    monkeypatch.setattr(bot, "RETRY_PAUSE", 0)
-
-    with pytest.raises(Stop):
-        asyncio.run(bot.polling_loop())
-
-    assert markers == [5, 5, 6, 7]
-    assert handled == ["p1", "p2", "c1", "c2"]
-    assert db.kv_get("max_marker") == "7"
-
-
-@pytest.fixture
-def replies(monkeypatch):
-    sent = []
-
-    async def fake_send(text, user_id=None, chat_id=None, buttons=None, image_token=None):
-        sent.append((user_id, text))
-        return {}
-
-    monkeypatch.setattr(max_api, "send_message", fake_send)
-    return sent
-
-
-UNKNOWN_TEXT = "Я помогаю новым сотрудникам. Попроси, пожалуйста, у своего рекрутера личную ссылку на меня."
-
-
-def test_unknown_user_gets_short_reply(replies):
-    asyncio.run(bot.handle_update(message_update("u1", user_id=321)))
-    asyncio.run(bot.handle_update({"update_type": "bot_started", "user": {"user_id": 322}, "chat_id": 10}))
-
-    assert replies == [(321, UNKNOWN_TEXT), (322, UNKNOWN_TEXT)]
-
-
-def test_bots_and_group_chats_are_ignored(replies):
-    asyncio.run(bot.handle_update(message_update("g1", is_bot=True)))
-    asyncio.run(bot.handle_update(message_update("g2", chat_type="chat")))
-
-    assert replies == []

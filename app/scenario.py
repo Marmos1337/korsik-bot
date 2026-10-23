@@ -321,6 +321,8 @@ def _due_date(match: re.Match, start: date, holidays: set[date], probation_month
         day = _add_months(start, int(match["months"])) + timedelta(days=int(match["extra"] or 0))
     else:
         day = _add_months(start, probation_months) - timedelta(days=1)
+        # the next working day is already after the probation, so the last step goes to the last working one
+        return _next_working(day, holidays, -1)
     # before the first day we move back so the employee is not late, after it we move forward
     return _next_working(day, holidays, -1 if day < start else 1)
 

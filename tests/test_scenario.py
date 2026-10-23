@@ -70,8 +70,11 @@ def test_month_clamps_to_month_end():
 def test_end_of_probation():
     # 2026-11-02 + 3 months - 1 day = Mon 2027-02-01
     assert due("конец 09:00", date(2026, 11, 2)) == datetime(2027, 2, 1, 6, 0, tzinfo=UTC)
-    # 2026-11-02 + 6 months - 1 day = Sat 2027-05-01, moved to Mon 2027-05-03
-    assert due("конец 09:00", date(2026, 11, 2), probation_months=6) == datetime(2027, 5, 3, 6, 0, tzinfo=UTC)
+    # 2026-11-02 + 6 months - 1 day = Sat 2027-05-01: the probation is over by Monday, so back to Fri 04-30
+    assert due("конец 09:00", date(2026, 11, 2), probation_months=6) == datetime(2027, 4, 30, 6, 0, tzinfo=UTC)
+    # Thu 2026-10-01 + 3 months - 1 day = Thu 2026-12-31, and the holidays push it back to Wed 12-30
+    assert due("конец 09:00", date(2026, 10, 1), holidays={date(2026, 12, 31)}) == datetime(2026, 12, 30, 6, 0,
+                                                                                              tzinfo=UTC)
 
 
 def test_start_is_link_time():
@@ -272,6 +275,13 @@ def test_real_scenario_is_valid_and_complete():
     assert set(source_rows) == set(range(4, 71)) - {6, 19}
     assert source_rows == sorted(source_rows)
     assert [s.when for s in steps if s.when in ("напоминание", "эскалация")] == ["эскалация", "напоминание"]
+
+
+def test_real_scenario_promises_only_what_the_bot_does():
+    # the bot has no /food or /hr commands, does not show drafts, cannot take photos and sends no files
+    texts = [text for s in load_scenario(REAL_SCENARIO) for text in (s.text_ty, s.text_vy)]
+    for promise in ("/food", "/hr", "перед публикацией", "Вот он.", "пришли фото", "пришлите фото"):
+        assert not [t for t in texts if promise in t], promise
 
 
 def test_real_holidays_file():
