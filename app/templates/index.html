@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Новички{% endblock %}
+{% block content %}
+<h1>Новички</h1>
+<p>
+  {% if model_up %}Модель работает: бот отвечает на вопросы по документам.
+  {% else %}Сейчас упрощённый режим: модель недоступна, бот отвечает цитатами из документов или передаёт вопрос рекрутеру. Сценарий и опросы работают как обычно.{% endif %}
+</p>
+
+{% if employees %}
+<table>
+  <tr><th>ФИО</th><th>Выход</th><th>Часовой пояс</th><th>Теги</th><th>Рекрутер</th><th>В боте</th><th>Шагов</th><th>Вопросов</th><th>Красных флагов</th></tr>
+  {% for e in employees %}
+  <tr>
+    <td><a href="/employees/{{ e.id }}">{{ e.full_name }}</a></td>
+    <td>{{ e.start_date }}</td>
+    <td>{{ e.timezone|zone }}</td>
+    <td>{{ e.tags }}</td>
+    <td>{{ e.recruiter_name or "не назначен" }}</td>
+    <td>{% if e.max_user_id %}да{% else %}ссылка не открыта{% endif %}</td>
+    <td>{{ e.steps_sent }}</td>
+    <td>{{ e.open_questions }}</td>
+    <td>{{ e.red_flags }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">Новичков пока нет.</p>
+{% endif %}
+
+<h2>Добавить новичка</h2>
+<form method="post" action="/employees">
+  <label>ФИО <input name="full_name" required maxlength="200" size="40"></label>
+  <label>Имя для обращения <input name="first_name" maxlength="200"> <span class="muted">если пусто, берём второе слово ФИО</span></label>
+  <label>Дата выхода <input type="date" name="start_date" required></label>
+  <label>Часовой пояс
+    <select name="timezone">
+      {% for name, label in zones.items() %}
+      <option value="{{ name }}"{% if name == default_zone %} selected{% endif %}>{{ label }}, {{ name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Теги через запятую <input name="tags" maxlength="200" size="30">
+    {% if tags %}<span class="muted">уже есть в сценарии и документах: {{ tags|join(", ") }}</span>{% endif %}
+  </label>
+  <label>Рекрутер
+    <select name="recruiter_id">
+      <option value="">не назначен</option>
+      {% for r in recruiters %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <button>Добавить</button>
+</form>
+{% endblock %}

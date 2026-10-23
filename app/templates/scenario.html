@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Сценарий{% endblock %}
+{% block content %}
+<h1>Сценарий</h1>
+{% if problems %}
+<p class="flash bad">Рабочий файл сценария не проходит проверку. Пока бот работает с тем сценарием, который загрузил раньше, после перезапуска без исправления сценария у него не будет. Что нужно исправить:</p>
+<ul>{% for problem in problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+{% else %}
+<p>Рабочий файл в порядке. Шагов: {{ steps }}.</p>
+{% endif %}
+<p><a href="/scenario/download">Скачать рабочий файл</a>, поправить в Excel и загрузить ниже.</p>
+
+<h2>Загрузить новый сценарий</h2>
+{% if upload_problems %}
+<p class="flash bad">Файл не принят, рабочий сценарий остался прежним. Что нужно исправить:</p>
+<ul>{% for problem in upload_problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+{% endif %}
+<form method="post" action="/scenario/upload" enctype="multipart/form-data">
+  <label>Файл .xlsx с листом «Сценарий» <input type="file" name="file" required accept=".xlsx"></label>
+  <button>Проверить и заменить</button>
+</form>
+<p class="muted">Сначала файл проверяется. Если ошибок нет, он заменяет рабочий, а предыдущая версия остаётся в data/scenario-previous.xlsx. Если есть, ничего не меняется. Шаги, которые новичок уже получил, повторно не уходят: учёт идёт по номеру шага, поэтому номера у старых шагов лучше не менять.</p>
+{% endblock %}

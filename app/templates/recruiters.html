@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Рекрутеры{% endblock %}
+{% block content %}
+<h1>Рекрутеры</h1>
+{% if recruiters %}
+<table>
+  <tr><th>Имя</th><th>МАКС</th><th>Новичков</th><th>Ссылка для привязки</th></tr>
+  {% for r in recruiters %}
+  <tr>
+    <td>{{ r.name }}</td>
+    <td>{% if r.max_user_id %}привязан{% else %}не привязан{% endif %}</td>
+    <td>{{ r.employees }}</td>
+    <td>
+      {% if links[r.id] %}
+      <a href="{{ links[r.id] }}">{{ links[r.id] }}</a><br>
+      <img src="/recruiters/{{ r.id }}/qr.png" width="140" height="140" alt="QR-код ссылки для {{ r.name }}">
+      {% else %}имя бота ещё не получено от МАКС{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">Рекрутеров пока нет.</p>
+{% endif %}
+
+<h2>Добавить рекрутера</h2>
+<form method="post" action="/recruiters">
+  <label>Имя <input name="name" required maxlength="200"></label>
+  <button>Добавить</button>
+</form>
+<p class="muted">Рекрутер открывает свою ссылку в МАКС, и бот присылает ему вопросы новичков и красные флаги.</p>
+{% endblock %}

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ employee.full_name }}{% endblock %}
+{% block content %}
+<p><a href="/">Все новички</a></p>
+<h1>{{ employee.full_name }}</h1>
+
+<table>
+  <tr><th>Имя для обращения</th><td>{{ employee.first_name }}</td></tr>
+  <tr><th>Выход</th><td>{{ employee.start_date }}</td></tr>
+  <tr><th>Часовой пояс</th><td>{{ employee.timezone|zone }}, {{ employee.timezone }}</td></tr>
+  <tr><th>Теги</th><td>{{ employee.tags or "нет" }}</td></tr>
+  <tr><th>Рекрутер</th><td>{{ employee.recruiter_name or "не назначен" }}</td></tr>
+  <tr><th>Обращение</th><td>{% if employee.address == "ty" %}на ты{% elif employee.address == "vy" %}на вы{% else %}ещё не выбрано{% endif %}</td></tr>
+  <tr><th>В боте</th><td>{% if employee.linked_at %}с {{ employee.linked_at|local }}{% else %}ссылка ещё не открыта{% endif %}</td></tr>
+</table>
+
+<h2>Ссылка и QR</h2>
+{% if link %}
+<p><a href="{{ link }}">{{ link }}</a></p>
+{% if employee.max_user_id %}<p class="muted">Ссылка одноразовая и уже открыта, второй аккаунт по ней не войдёт.</p>{% endif %}
+<img src="/employees/{{ employee.id }}/qr.png" width="200" height="200" alt="QR-код личной ссылки">
+{% else %}
+<p>Имя бота ещё не получено от МАКС, ссылки пока нет. Обновите страницу через минуту.</p>
+{% endif %}
+
+{% if demo and employee.linked_at %}
+<h2>Демо</h2>
+<p>Сейчас у новичка: {{ employee_now }}{% if employee.time_shift %} (время сдвинуто на {{ employee.time_shift // 3600 }} ч){% endif %}</p>
+<form method="post" action="/employees/{{ employee.id }}/next"><button>Следующий шаг</button></form>
+{% endif %}
+
+<h2>Шаги</h2>
+{% if steps %}
+<table>
+  <tr><th>Шаг</th><th>Текст</th><th>Состояние</th><th>Отправлен</th><th>Ответ</th></tr>
+  {% for s in steps %}
+  <tr>
+    <td>{{ s.step_id }}</td>
+    <td class="text">{{ titles.get(s.step_id, "")|truncate(90) }}</td>
+    <td>{{ {"sent": "отправлен", "answered": "есть ответ", "skipped": "пропущен", "reminded": "напомнили"}.get(s.status, s.status) }}</td>
+    <td>{{ s.sent_at|local }}</td>
+    <td>{{ s.answered_at|local }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">Пока ничего не отправлено.</p>
+{% endif %}
+
+<h2>Ответы на опросы</h2>
+{% if answers %}
+<table>
+  <tr><th>Шаг</th><th>Вопрос</th><th>Ответ</th><th>Оценка</th><th>Когда</th></tr>
+  {% for a in answers %}
+  <tr>
+    <td>{{ a.step_id }}</td>
+    <td class="text">{{ a.question|truncate(120) }}</td>
+    <td class="text">{{ a.answer }}</td>
+    <td>{{ a.score if a.score is not none else "" }}</td>
+    <td>{{ a.created_at|local }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">Ответов пока нет.</p>
+{% endif %}
+
+<h2>Флаги</h2>
+{% if flags %}
+<table>
+  <tr><th>Когда</th><th>Риск</th><th>Тема</th><th>Причина</th><th>Сообщение</th></tr>
+  {% for f in flags %}
+  <tr>
+    <td>{{ f.created_at|local }}</td>
+    <td>{% if f.risk == 2 %}красный флаг{% else %}есть трудность{% endif %}</td>
+    <td>{{ f.topic }}</td>
+    <td>{{ f.reason }}</td>
+    <td class="text">{{ f.text }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">Флагов нет.</p>
+{% endif %}
+
+<h2>Переписка</h2>
+{% if messages %}
+<table>
+  <tr><th>Когда</th><th>Кто</th><th>Текст</th></tr>
+  {% for m in messages %}
+  <tr>
+    <td>{{ m.created_at|local }}</td>
+    <td>{{ {"employee": "новичок", "bot": "бот", "hr": "HR"}.get(m.role, m.role) }}</td>
+    <td class="text">{{ m.text }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">Переписки нет.</p>
+{% endif %}
+{% endblock %}

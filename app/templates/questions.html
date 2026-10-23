@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Вопросы{% endblock %}
+{% block content %}
+<h1>Вопросы без ответа в документах</h1>
+{% for q, context in opened %}
+<div id="q{{ q.id }}">
+  <h3>{{ q.created_at|local }}, <a href="/employees/{{ q.employee_id }}">{{ q.full_name }}</a>{% if q.tags %} ({{ q.tags }}){% endif %}</h3>
+  <p class="muted">
+    {% if not q.recruiter_name %}рекрутер не назначен
+    {% elif q.recruiter_linked %}рекрутер {{ q.recruiter_name }} получил этот вопрос в МАКС
+    {% else %}рекрутер {{ q.recruiter_name }} ещё не привязал МАКС, вопрос виден только здесь{% endif %}
+  </p>
+  <p class="text"><b>{{ q.question }}</b></p>
+  {% if context %}
+  <details><summary>Последние сообщения</summary>
+    <table>
+      {% for m in context %}
+      <tr><td>{{ {"employee": "новичок", "bot": "бот", "hr": "HR"}.get(m.role, m.role) }}</td><td class="text">{{ m.text }}</td></tr>
+      {% endfor %}
+    </table>
+  </details>
+  {% endif %}
+  <form method="post" action="/questions/{{ q.id }}/answer">
+    <label>Ответ новичку <textarea name="answer" required rows="3" cols="70" maxlength="3000"></textarea></label>
+    <button>Отправить</button>
+  </form>
+</div>
+{% else %}
+<p class="muted">Открытых вопросов нет.</p>
+{% endfor %}
+
+{% if answered %}
+<h2>Недавние ответы</h2>
+<table>
+  <tr><th>Новичок</th><th>Вопрос</th><th>Ответ</th><th>Кто ответил</th><th>Когда</th></tr>
+  {% for q in answered %}
+  <tr>
+    <td><a href="/employees/{{ q.employee_id }}">{{ q.full_name }}</a></td>
+    <td class="text">{{ q.question }}</td>
+    <td class="text">{{ q.answer }}</td>
+    <td>{{ q.answered_by }}</td>
+    <td>{{ q.answered_at|local }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

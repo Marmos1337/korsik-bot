@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Кабинет HR{% endblock %} | Корсик</title>
+<style>
+body { font-family: sans-serif; max-width: 70rem; margin: 1rem auto; padding: 0 1rem; }
+table { border-collapse: collapse; width: 100%; margin: .5rem 0 1.5rem; }
+th, td { border: 1px solid #bbb; padding: .3rem .5rem; text-align: left; vertical-align: top; }
+th { background: #eee; }
+nav { margin-bottom: 1rem; }
+nav a, nav form { margin-right: 1rem; display: inline; }
+.flash { padding: .5rem; background: #e6f3e6; }
+.flash.bad { background: #fde8e8; }
+.text { white-space: pre-wrap; }
+.muted { color: #666; }
+label { display: block; margin: .4rem 0; }
+</style>
+</head>
+<body>
+{% if request.session.get("admin") %}
+<nav>
+  <a href="/">Новички</a>
+  <a href="/recruiters">Рекрутеры</a>
+  <a href="/knowledge">Документы</a>
+  <a href="/questions">Вопросы{% if open_questions() %} ({{ open_questions() }}){% endif %}</a>
+  <a href="/scenario">Сценарий</a>
+  <a href="/export.xlsx">Excel</a>
+  <form method="post" action="/logout"><button>Выйти</button></form>
+</nav>
+{% endif %}
+{% if flash %}<p class="flash{% if flash.bad %} bad{% endif %}">{{ flash.text }}</p>{% endif %}
+{% block content %}{% endblock %}
+{% if request.session.get("admin") %}<p class="muted">Время на страницах: {{ tz_name }}</p>{% endif %}
+</body>
+</html>

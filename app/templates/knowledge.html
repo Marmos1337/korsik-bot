@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Документы{% endblock %}
+{% block content %}
+<h1>Документы</h1>
+{% if documents %}
+<table>
+  <tr><th>Название</th><th>Теги</th><th>Тип</th><th>Фрагментов</th><th>Добавлен</th><th></th></tr>
+  {% for d in documents %}
+  <tr>
+    <td>{{ d.title }}</td>
+    <td>{{ d.tags or "для всех" }}</td>
+    <td>{{ {"file": "файл", "hr_answers": "ответы HR", "demo": "демо"}.get(d.kind, d.kind) }}</td>
+    <td>{{ d.chunks }}</td>
+    <td>{{ d.created_at|local }}</td>
+    <td><form method="post" action="/knowledge/{{ d.id }}/delete"><button>Удалить</button></form></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">Документов пока нет.</p>
+{% endif %}
+
+<h2>Загрузить документ</h2>
+<form method="post" action="/knowledge/upload" enctype="multipart/form-data">
+  <label>Файл (PDF, DOCX, PPTX, TXT или MD, до 20 МБ) <input type="file" name="file" required accept=".pdf,.docx,.pptx,.txt,.md"></label>
+  <label>Название <input name="title" maxlength="200" size="40"> <span class="muted">если пусто, берём имя файла</span></label>
+  <label>Теги через запятую <input name="tags" maxlength="200"> <span class="muted">пусто: документ видят все</span></label>
+  <button>Загрузить</button>
+</form>
+<p class="muted">Скан PDF без текста распознаётся, если на сервере есть tesseract. Это долго, дождитесь ответа страницы. Тот же файл второй раз добавится как отдельный документ, старый можно удалить.</p>
+
+<h2>Проверить вопросом</h2>
+<p class="muted">Так бот ищет в документах для новичка с этими тегами. Документ с чужим тегом в ответ не попадает.</p>
+<form method="post" action="/knowledge/check">
+  <label>Вопрос <input name="question" required size="60" value="{{ question }}"></label>
+  <label>Теги новичка <input name="tags" maxlength="200" value="{{ tags }}"></label>
+  <button>Найти</button>
+</form>
+{% if hits is not none %}
+  {% if hits %}
+  <table>
+    <tr><th>Документ</th><th>Пункт</th><th>Фрагмент</th></tr>
+    {% for h in hits %}
+    <tr><td>{{ h.title }}</td><td>{{ h.section }}</td><td class="text">{{ h.text|truncate(500) }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p>Ничего не нашлось. Бот в этом случае передал бы вопрос рекрутеру.</p>
+  {% endif %}
+{% endif %}
+{% endblock %}
