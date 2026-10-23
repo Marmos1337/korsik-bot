@@ -3,7 +3,7 @@ import logging
 
 import uvicorn
 
-from app import bot, db, engine, max_api
+from app import bot, db, engine, hr, llm, max_api
 from app.config import cfg
 from app.web import app
 
@@ -42,6 +42,7 @@ async def main() -> None:
         asyncio.create_task(wait_for_bot_name()),
         asyncio.create_task(bot.polling_loop()),
         asyncio.create_task(engine.scheduler_loop()),
+        asyncio.create_task(llm.watch_loop(hr.on_llm_mode_change)),
     ]
     server = uvicorn.Server(uvicorn.Config(app, host=cfg.WEB_HOST, port=cfg.WEB_PORT))
     try:

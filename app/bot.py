@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from app import db, engine, max_api, messaging
+from app import db, engine, hr, max_api, messaging, qa
 from app.config import cfg
 
 log = logging.getLogger(__name__)
@@ -21,6 +21,9 @@ USED_LINK_TEXT = (
 
 # keys of recently handled events; dict keeps insertion order, so the oldest is first
 _seen: dict[str, None] = {}
+# the last started task of each person: their next update waits for it, other people do not
+_turns: dict[int | None, asyncio.Task] = {}
+_background: set[asyncio.Task] = set()
 
 
 def update_key(update: dict) -> str | None:
@@ -54,12 +57,8 @@ async def polling_loop() -> None:
                 marker, marker_loaded = (int(saved) if saved else None), True
             updates, new_marker = await max_api.get_updates(marker)
             for update in updates:
-                if already_seen(update):
-                    continue
-                try:
-                    await handle_update(update)
-                except Exception:
-                    log.exception("update %s failed", update.get("update_type"))
+                if not already_seen(update):
+                    dispatch(update)
             if new_marker is not None and new_marker != marker:
                 # memory first: if saving fails, the next request still moves on
                 marker = new_marker
@@ -67,6 +66,47 @@ async def polling_loop() -> None:
         except Exception as e:
             log.warning("polling failed (%s), retry in %s s", e, RETRY_PAUSE)
             await asyncio.sleep(RETRY_PAUSE)
+
+
+def dispatch(update: dict) -> None:
+    """Handles an update in its own task, after the earlier updates of the same person.
+
+    One question can take a few model calls; a button of another newcomer or a recruiter answer must not wait
+    for them, while the updates of one person keep their order.
+    """
+    user_id = sender(update).get("user_id")
+    _turns[user_id] = asyncio.create_task(_in_turn(user_id, _turns.get(user_id), update))
+
+
+async def _in_turn(user_id: int | None, previous: asyncio.Task | None, update: dict) -> None:
+    try:
+        if previous is not None:
+            await asyncio.wait([previous])
+        await handle_update(update)
+    except Exception:
+        log.exception("update %s failed", update.get("update_type"))
+    finally:
+        if _turns.get(user_id) is asyncio.current_task():
+            del _turns[user_id]
+
+
+def in_background(job) -> None:
+    """Runs a coroutine that nobody waits for; its errors go to the log."""
+    task = asyncio.create_task(job)
+    _background.add(task)
+    task.add_done_callback(_background_done)
+
+
+def _background_done(task: asyncio.Task) -> None:
+    _background.discard(task)
+    if not task.cancelled() and task.exception():
+        log.error("background job failed", exc_info=task.exception())
+
+
+async def settle() -> None:
+    """Waits until every started update and background job is done."""
+    while _turns or _background:
+        await asyncio.wait([*_turns.values(), *_background])
 
 
 def sender(update: dict) -> dict:
@@ -88,15 +128,25 @@ async def handle_update(update: dict) -> None:
     user_id = user.get("user_id")
     if not user_id or user.get("is_bot"):
         return
-    _, chat_type = chat(update)
+    chat_id, chat_type = chat(update)
     if chat_type not in (None, "dialog"):
-        return  # employees talk to the bot one to one; the HR chat comes with the recruiter ticket
+        # the HR chat gets copies of escalations: recruiters press «Ответить» there, the talk is for people
+        if cfg.HR_CHAT_ID and chat_id == cfg.HR_CHAT_ID and kind == "message_callback":
+            recruiter = db.query_one("SELECT * FROM recruiters WHERE max_user_id = ?", (user_id,))
+            if recruiter:
+                await hr.handle_recruiter_update(recruiter, update)
+        return
 
     if kind == "bot_started" and update.get("payload"):
         await start_by_link(user, str(update["payload"]))
         return
 
+    recruiter = db.query_one("SELECT * FROM recruiters WHERE max_user_id = ?", (user_id,))
     employee = db.query_one("SELECT * FROM employees WHERE max_user_id = ?", (user_id,))
+    # a recruiter may also try the bot as a newcomer from the same account
+    if recruiter and (employee is None or hr.is_recruiter_update(recruiter, update)):
+        await hr.handle_recruiter_update(recruiter, update)
+        return
     if employee is None:
         if kind in ("message_created", "bot_started"):
             log.info("%s from unknown user %s", kind, user_id)
@@ -112,6 +162,12 @@ async def handle_update(update: dict) -> None:
 
 
 async def start_by_link(user: dict, code: str) -> None:
+    if code.startswith("hr_"):
+        recruiter = hr.link_recruiter(user["user_id"], code[3:])
+        log.info("recruiter link from user %s: %s", user["user_id"], "ok" if recruiter else "unknown")
+        text = hr.RECRUITER_LINKED.format(name=recruiter["name"]) if recruiter else hr.RECRUITER_LINK_UNKNOWN
+        await messaging.send_to_user(user["user_id"], text)
+        return
     result = await engine.link_employee(user, code)
     log.info("start link from user %s: %s", user["user_id"], result)
     if result == "unknown":
@@ -132,8 +188,31 @@ async def handle_text(employee, text: str) -> None:
         await engine.ask_delete(employee)
     elif command == "/next":
         await next_step(employee)
-    elif not await engine.on_text(employee, text):
-        await engine.say(employee, "not_ready")
+    elif await engine.on_text(employee, text):
+        in_background(hr.analyze_pulse(employee, text))  # a comment to a survey says a lot about the mood
+    else:
+        await answer(employee, text)
+
+
+async def answer(employee, text: str) -> None:
+    result = await qa.answer_question(employee, text)
+    if result.escalate:
+        question = question_before(employee["id"]) if result.reason == "asked_human" else None
+        await hr.escalate(employee, question or text, result.reason)
+    elif result.text:
+        await messaging.send_to_employee(employee, result.text)
+    if result.reason not in ("small_talk", "unclear", "asked_human"):
+        in_background(hr.analyze_pulse(employee, text))  # a model call of its own, after the reply
+
+
+def question_before(employee_id: int) -> str | None:
+    """The question «нужен человек» is about: the last real one before it."""
+    for message in reversed(messaging.history(employee_id, 10)[:-1]):
+        text = message["text"]
+        if (message["role"] == "employee" and not text.startswith("/") and not qa.wants_human(text)
+                and qa.small_talk_reply(text, None) is None):
+            return text
+    return None
 
 
 async def send_help(employee) -> None:

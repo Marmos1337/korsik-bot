@@ -19,8 +19,9 @@ REMIND_AFTER = timedelta(hours=24)
 SKIP_AFTER = timedelta(hours=48)
 LATE_LIMIT = timedelta(hours=24)  # a step this late at the moment of linking is not sent at all
 
-INTERACTIVE = ("обращение", "вопрос", "опрос", "шкала", "текст")
 SURVEY = ("опрос", "шкала", "текст")
+# a «вопрос» only offers optional branches (D01): its buttons stay, but the next steps do not wait for it
+BLOCKING = ("обращение",) + SURVEY
 REMINDER = "напоминание"
 ACK_TEXT = "Принято"
 
@@ -63,8 +64,38 @@ PHRASES = {
         "Пока я понимаю только текст. Напиши, пожалуйста, словами.",
         "Пока я понимаю только текст. Напишите, пожалуйста, словами.",
     ),
-    # until the questions ticket lands, free text only gets this
-    "not_ready": ("Записал. Скоро научусь отвечать на вопросы по документам.",) * 2,
+    # answers to free text (qa.py, hr.py)
+    "small_hello": (
+        "Привет! Если есть вопрос о работе, напиши его своими словами, я поищу ответ в документах компании.",
+        "Здравствуйте! Если есть вопрос о работе, напишите его своими словами, я поищу ответ в документах компании.",
+    ),
+    "small_thanks": ("Пожалуйста! Если появятся вопросы, пиши.", "Пожалуйста! Если появятся вопросы, пишите."),
+    "small_how": (
+        "Всё хорошо, спасибо! Если появится вопрос о работе, пиши.",
+        "Всё хорошо, спасибо! Если появится вопрос о работе, пишите.",
+    ),
+    "small_ok": ("Хорошо 👍",) * 2,
+    "small_bye": ("Пока! Если что, я здесь.", "До свидания! Если что, я здесь."),
+    "unclear": (
+        "Не совсем понял вопрос. Напиши, пожалуйста, подробнее, и я поищу ответ в документах.",
+        "Не совсем понял вопрос. Напишите, пожалуйста, подробнее, и я поищу ответ в документах.",
+    ),
+    "found": ("Вот что сказано в документе:",) * 2,
+    "simple_quote": (
+        "⚙️ Сейчас я работаю в упрощённом режиме: умный поиск временно недоступен, поэтому отвечаю цитатой "
+        "из документа. Если это не то, напиши «нужен человек».",
+        "⚙️ Сейчас я работаю в упрощённом режиме: умный поиск временно недоступен, поэтому отвечаю цитатой "
+        "из документа. Если это не то, напишите «нужен человек».",
+    ),
+    "simple_mode": ("⚙️ Сейчас я работаю в упрощённом режиме: умный поиск временно недоступен",) * 2,
+    # used when the scenario has no «эскалация» step
+    "escalated": ("В документах этого нет. Спросил у коллег из HR, ответ придёт сюда.",) * 2,
+    "escalated_topic": (
+        "С этим лучше помогут коллеги из HR: передал им твой вопрос, ответ придёт сюда.",
+        "С этим лучше помогут коллеги из HR: передал им ваш вопрос, ответ придёт сюда.",
+    ),
+    "escalated_human": ("Хорошо, передал вопрос коллегам из HR. Ответ придёт сюда.",) * 2,
+    "hr_answer": ("По твоему вопросу «{question}»: {answer}", "По вашему вопросу «{question}»: {answer}"),
 }
 
 _steps: list[Step] = []
@@ -216,7 +247,7 @@ async def _send_due(employee, now: datetime) -> int:
     for _, step in due:
         await _send_step(employee, step)
         sent += 1
-        if step.kind in INTERACTIVE:
+        if step.kind in BLOCKING:
             break
     return sent
 
@@ -228,7 +259,7 @@ async def _send_step(employee, step: Step) -> None:
         text += "\n\n" + phrase(employee, "privacy")
     await messaging.send_to_employee(employee, text, buttons=_buttons(step), image=step.image or None)
     _mark(employee["id"], step.id, "sent")
-    if step.kind in INTERACTIVE:
+    if step.kind in BLOCKING:
         _set_waiting(employee["id"], step.id, "step", employee_now(employee))
 
 
@@ -243,7 +274,7 @@ async def _remind(employee, step_id: str) -> None:
     buttons = _buttons(step)
     if step.kind == "обращение":
         await messaging.send_to_employee(employee, render_text(step, None, employee["first_name"]), buttons=buttons)
-    elif not await send_special(employee, REMINDER, buttons=buttons):
+    elif step.kind in SURVEY and not await send_special(employee, REMINDER, buttons=buttons):
         await say(employee, "remind", buttons=buttons)
 
 

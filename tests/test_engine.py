@@ -71,7 +71,7 @@ def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "SCENARIO_PATH", str(write_scenario(tmp_path / "scenario.xlsx", ROWS)))
     monkeypatch.setattr(cfg, "HOLIDAYS_PATH", str(tmp_path / "no-holidays.txt"))
     monkeypatch.setattr(cfg, "DEMO_MODE", False)
-    # hr.py belongs to another ticket: here it is missing unless a test puts a fake in its place
+    # engine tests run without hr.py: it is missing unless a test puts a fake in its place
     monkeypatch.setitem(sys.modules, "app.hr", None)
     assert engine.reload_scenario() == []
 
@@ -260,33 +260,54 @@ def test_step_overdue_at_linking_is_skipped_except_start(clock, outbox):
     # linked on Tuesday 11:00: step 10 (Mon 10:00) is 25 hours late, step 12 (Mon 12:30) is 22.5 hours late
     employee_id = linked(clock, outbox, at=datetime(2026, 11, 3, 8, 0, tzinfo=UTC))
 
-    assert statuses(employee_id) == {"1": "sent", "2": "answered", "3": "sent", "10": "skipped", "12": "sent"}
+    assert statuses(employee_id) == {
+        "1": "sent", "2": "answered", "3": "sent", "10": "skipped", "12": "sent", "13": "sent"}
 
 
-def test_waiting_step_blocks_then_reminds_once_then_is_skipped(clock, outbox):
-    employee_id = linked(clock, outbox)
+def test_survey_step_blocks_then_reminds_once_then_is_skipped(clock, outbox):
+    employee_id = choose(clock, outbox, at=THIRD_DAY_1730)
+    assert texts(outbox) == ["Отлично, Аня, на ты.", "Оцени первые дни"]
+    rating = outbox[-1]
+    outbox.clear()
+
+    clock.now = THIRD_DAY_1730 + timedelta(hours=1)
+    run(engine.tick())
+    assert outbox == []  # step 21 waits for the rating
+
+    clock.now = THIRD_DAY_1730 + timedelta(hours=24)
+    run(engine.tick())
+    run(engine.tick())
+    assert texts(outbox) == ["Аня, опрос остался незаконченным."]
+    assert payloads(outbox[0]) == payloads(rating)
+    assert statuses(employee_id)["20"] == "reminded"
+    outbox.clear()
+
+    clock.now = THIRD_DAY_1730 + timedelta(hours=48)
+    run(engine.tick())
+    assert outbox == []
+    assert {k: v for k, v in statuses(employee_id).items() if k in ("20", "21", "22", "23")} == {
+        "20": "skipped", "21": "skipped", "22": "skipped", "23": "skipped"}
+
+
+def test_question_step_holds_nothing_and_its_buttons_work_later(clock, outbox):
+    # D01: branches of a «вопрос» are optional, so the day goes on without the answer
+    employee_id = linked(clock, outbox, tags="GrPP")
     clock.now = FIRST_DAY_1230
     run(engine.tick())
-    assert texts(outbox) == ["С первым днём, Аня!", "Подсказать, где обедать?"]
-    question = outbox[-1]
     outbox.clear()
 
     clock.now = FIRST_DAY_13
     run(engine.tick())
-    assert outbox == []  # step 13 waits for the answer
-
-    clock.now = FIRST_DAY_1230 + timedelta(hours=24)
-    run(engine.tick())
-    run(engine.tick())
-    assert texts(outbox) == ["Аня, опрос остался незаконченным."]
-    assert payloads(outbox[0]) == payloads(question) == ["step:12:0", "step:12:1"]
-    assert statuses(employee_id)["12"] == "reminded"
+    assert texts(outbox) == ["Вот справочник коллег"]
     outbox.clear()
 
-    clock.now = FIRST_DAY_1230 + timedelta(hours=48)
+    clock.now = FIRST_DAY_1230 + timedelta(hours=30)
     run(engine.tick())
-    assert texts(outbox) == ["Вот справочник коллег"]
-    assert statuses(employee_id)["12"] == "skipped"
+    assert outbox == []  # no «опрос не закончен» for a question
+
+    press(employee_id, "step:12:0")
+    assert texts(outbox) == ["Кафе рядом с офисом GrPP"]
+    assert statuses(employee_id)["12"] == "answered"
 
 
 def test_branch_button_sends_branch_for_tags(clock, outbox):
@@ -378,12 +399,10 @@ def test_demo_next_moves_time_to_the_next_step(clock, outbox, monkeypatch):
 
 def test_demo_next_while_waiting_jumps_to_reminder(clock, outbox, monkeypatch):
     monkeypatch.setattr(cfg, "DEMO_MODE", True)
-    employee_id = linked(clock, outbox)
-    clock.now = FIRST_DAY_1230
-    run(engine.tick())
+    employee_id = linked(clock, outbox, at=THIRD_DAY_1730)
     outbox.clear()
 
-    assert run(engine.demo_next(employee_id)) == "12"
+    assert run(engine.demo_next(employee_id)) == "20"
     run(engine.tick())
     assert texts(outbox) == ["Аня, опрос остался незаконченным."]
 
@@ -451,3 +470,32 @@ def test_invite_link_needs_bot_name(monkeypatch):
     assert engine.invite_link("abc") is None
     monkeypatch.setattr(cfg, "BOT_USERNAME", "korsik_bot")
     assert engine.invite_link("abc") == "https://max.ru/korsik_bot?start=abc"
+
+
+def test_parallel_ticks_and_presses_send_each_step_once(clock, monkeypatch):
+    # the bot handles every update in its own task now, so the scheduler and presses really overlap
+    sent = []
+
+    async def yielding_send(text, user_id=None, chat_id=None, buttons=None, image_token=None):
+        await asyncio.sleep(0)  # a real request gives the loop to other tasks
+        sent.append(text)
+        return {}
+
+    async def fake_answer(callback_id, notification=None):
+        pass
+
+    monkeypatch.setattr(max_api, "send_message", yielding_send)
+    monkeypatch.setattr(max_api, "answer_callback", fake_answer)
+    employee_id = make_employee()
+    run(engine.link_employee({"user_id": 500}, "anna"))
+    clock.now = FIRST_DAY_13
+    sent.clear()
+
+    async def together():
+        await asyncio.gather(engine.tick(), engine.tick(), engine.advance(employee_id),
+                             engine.on_callback(employee(employee_id), "addr:ty", "c1"))
+
+    run(together())
+
+    assert sorted(sent) == sorted(set(sent))
+    assert {"Отлично, Аня, на ты.", "С первым днём, Аня!", "Вот справочник коллег"} <= set(sent)
