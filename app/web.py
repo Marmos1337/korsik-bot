@@ -22,7 +22,7 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 
-from app import db, engine, hr, knowledge, llm
+from app import db, engine, hr, knowledge, llm, miniapp
 from app.config import cfg
 from app.scenario import ScenarioError, Step, load_scenario, validate_scenario
 
@@ -44,6 +44,8 @@ SECURITY_HEADERS = {
     "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; "
                                "form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 }
+# the MAX mini app runs MAX's bridge script and its own one, and lives inside a MAX frame
+MINIAPP_HEADERS = SECURITY_HEADERS | {"Content-Security-Policy": miniapp.POLICY}
 # Russian time zones, west to east; offsets never change because Russia has no summer time
 TIMEZONES = {
     "Europe/Kaliningrad": "Калининград (UTC+2)",
@@ -62,6 +64,7 @@ TIMEZONES = {
 
 # the admin is plain HTML pages, an auto-generated API page would only show the routes to strangers
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.include_router(miniapp.router)
 
 templates = Jinja2Templates(env=jinja2.Environment(
     loader=jinja2.FileSystemLoader(Path(__file__).parent / "templates"),
@@ -89,14 +92,16 @@ templates.env.globals["open_questions"] = lambda: db.query_one(
 @app.middleware("http")
 async def guard(request: Request, call_next):
     size = request.headers.get("content-length", "")
+    # the mini app has no cabinet session: each of its requests carries MAX's signed initData instead
+    in_miniapp = request.url.path == "/app" or request.url.path.startswith("/app/")
     if size.isdigit() and int(size) > MAX_UPLOAD + FORM_OVERHEAD:
         # answered before the body is read, so a huge upload never lands on disk
         response = page(request, "message.html", 413, text="Файл больше 20 МБ.")
-    elif request.url.path in PUBLIC_PATHS or request.session.get("admin"):
+    elif in_miniapp or request.url.path in PUBLIC_PATHS or request.session.get("admin"):
         response = await call_next(request)
     else:
         response = RedirectResponse("/login", status_code=303)
-    response.headers.update(SECURITY_HEADERS)
+    response.headers.update(MINIAPP_HEADERS if in_miniapp else SECURITY_HEADERS)
     return response
 
 

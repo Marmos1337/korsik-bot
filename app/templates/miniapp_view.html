@@ -1,0 +1,81 @@
+{% if message %}<p class="flash{% if bad %} bad{% endif %}">{{ message }}</p>{% endif %}
+
+{% if recruiter %}
+<h2>Вопросы новичков</h2>
+{% for q in questions %}
+<form method="post" action="/app/answer/{{ q.id }}">
+  <p><b>{{ q.full_name }}</b>, {{ q.created_at|local }}</p>
+  <p class="text">{{ q.question }}</p>
+  <input type="hidden" name="employee_id" value="{{ q.employee_id }}">
+  <input type="hidden" name="asked_at" value="{{ q.created_at }}">
+  <textarea name="answer" required rows="3" maxlength="3000">{% if typed[0] == q.id %}{{ typed[1] }}{% endif %}</textarea>
+  <button>Отправить ответ</button>
+</form>
+{% else %}
+<p class="muted">Открытых вопросов нет.</p>
+{% endfor %}
+
+<h2>Мои новички</h2>
+{% for n in newcomers %}
+{% set e = n.employee %}
+<details>
+  <summary>{{ e.full_name }}: {{ n.stage }}{% if n.flags %}, есть флаги{% endif %}</summary>
+  <table>
+    <tr><th>Выход</th><td>{{ e.start_date }}</td></tr>
+    <tr><th>Часовой пояс</th><td>{{ e.timezone }}</td></tr>
+    <tr><th>Теги</th><td>{{ e.tags or "нет" }}</td></tr>
+    <tr><th>Обращение</th><td>{% if e.address == "ty" %}на ты{% elif e.address == "vy" %}на вы{% else %}ещё не выбрано{% endif %}</td></tr>
+    <tr><th>Шагов отправлено</th><td>{{ e.steps_sent }}</td></tr>
+  </table>
+  {% if n.flags %}
+  <p>Последние флаги:</p>
+  <ul>
+    {% for f in n.flags %}
+    <li>{{ f.created_at|local }}, {% if f.risk == 2 %}красный флаг{% else %}есть трудность{% endif %}, {{ f.topic }}: <span class="text">{{ f.text }}</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if n.answers %}
+  <p>Последние ответы на опросы:</p>
+  <ul>
+    {% for a in n.answers %}
+    <li>{{ a.question|truncate(80) }}: <span class="text">{{ a.answer }}</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</details>
+{% else %}
+<p class="muted">За вами пока не закреплён ни один новичок.</p>
+{% endfor %}
+
+<h2>Сводка</h2>
+<p class="text">{{ digest }}</p>
+{% endif %}
+
+{% if employee %}
+<h2>{% if ty %}Твой{% else %}Ваш{% endif %} прогресс</h2>
+<p>{{ stage|capitalize }}<br>Пройдено шагов: {{ steps_done }}</p>
+{% if employee.waiting %}
+<p>Бот ждёт {% if ty %}твоего{% else %}вашего{% endif %} ответа в чате.</p>
+{% elif next_step %}
+<p>Следующее сообщение от бота: {{ next_step[1] }} по {% if ty %}твоему{% else %}вашему{% endif %} времени.</p>
+<p class="text muted">{{ next_step[0]|truncate(120) }}</p>
+{% else %}
+<p>Новых сообщений по плану пока нет.</p>
+{% endif %}
+
+<h2>{% if ty %}Твои{% else %}Ваши{% endif %} вопросы к HR</h2>
+{% for q in my_questions %}
+<p>
+  <span class="muted">{{ q.created_at|local(employee.timezone) }}</span><br>
+  <b class="text">{{ q.question }}</b><br>
+  {% if q.status == "answered" %}Ответ: <span class="text">{{ q.answer }}</span>{% else %}<span class="muted">ждёт ответа</span>{% endif %}
+</p>
+{% else %}
+<p class="muted">Вопросов к HR пока не было. Если бот не найдёт ответ в документах, вопрос появится здесь.</p>
+{% endfor %}
+{% endif %}
+
+{% if not recruiter and not employee %}
+<p>Это приложение бота Корсик для новичков и рекрутеров. Откройте бота по личной ссылке от рекрутера, после этого здесь появятся ваши данные.</p>
+{% endif %}

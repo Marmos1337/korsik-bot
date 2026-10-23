@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Корсик</title>
+<style>
+body { font-family: sans-serif; margin: 1rem; }
+table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
+th, td { border: 1px solid #bbb; padding: .3rem .5rem; text-align: left; vertical-align: top; }
+th { background: #eee; }
+form { margin-bottom: 1.5rem; }
+textarea { width: 100%; box-sizing: border-box; }
+.flash { padding: .5rem; background: #e6f3e6; }
+.flash.bad { background: #fde8e8; }
+.text { white-space: pre-wrap; }
+.muted { color: #666; }
+</style>
+<script src="https://st.max.ru/js/max-web-app.js"></script>
+</head>
+<body>
+<main id="main"><p class="muted">Загружаю...</p></main>
+<script>
+const initData = window.WebApp ? window.WebApp.initData : "";
+const main = document.getElementById("main");
+
+async function send(url, body) {
+  body.set("init_data", initData);
+  try {
+    const response = await fetch(url, {method: "POST", body: body});
+    main.innerHTML = await response.text();
+  } catch (error) {
+    main.innerHTML = "<p class=\"flash bad\">Нет связи с сервером. Попробуйте ещё раз.</p>";
+  }
+}
+
+main.addEventListener("submit", (event) => {
+  event.preventDefault();
+  send(event.target.getAttribute("action"), new FormData(event.target));
+});
+
+send("/app/view", new FormData());
+</script>
+</body>
+</html>
