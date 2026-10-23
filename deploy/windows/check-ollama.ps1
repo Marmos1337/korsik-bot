@@ -35,7 +35,7 @@ if ($firewall) {
     Write-Host $firewall -ForegroundColor Red
     exit 1
 }
-Write-Host "Брандмауэр включён, правила для порта $port на месте."
+Write-Host "Брандмауэр включён, правила для порта $port на месте. Порт открыт только для: $(@(Get-AllowFrom) -join ', ')."
 
 $startedHere = $false
 if (-not (Test-OllamaUp)) {
@@ -74,23 +74,23 @@ try {
 }
 
 if (Test-WideListener) {
-    Write-Host "Ollama слушает порт $port на всех адресах, из сети пускает только Tailscale (правила брандмауэра)."
+    Write-Host "Ollama слушает порт $port на всех адресах, из сети брандмауэр пускает только адреса из списка выше."
 } else {
     $problems += "Ollama слушает только 127.0.0.1, бот её не увидит. Её открыли не из окна 'Корсик модель': закрой Ollama в трее и включи модель кнопкой в окне."
 }
 
-$ip = Get-TailscaleIp (Find-Tailscale)
+$ip = Get-LanIp
 if ($ip) {
-    Write-Host "Адрес в Tailscale: $ip"
+    Write-Host "Адрес компьютера в локальной сети: $ip"
     try {
         Invoke-RestMethod -Uri "http://${ip}:$port/api/version" -TimeoutSec 5 | Out-Null
         # A request to our own address never leaves the computer, the firewall does not see it.
-        Write-Host "Ollama слушает адрес Tailscale. Пускает ли брандмауэр бота и закрыт ли порт для остальных, отсюда не проверить: это проверяется с Mac (README, раздел про Mac)."
+        Write-Host "Ollama слушает адрес $ip. Пускает ли брандмауэр сервер и закрыт ли порт для остальных, отсюда не проверить: это проверяется с сервера и с другого устройства сети (README, «Проверка доступа»)."
     } catch {
-        $problems += "Ollama не отвечает на адресе Tailscale ${ip}: $($_.Exception.Message)"
+        $problems += "Ollama не отвечает на адресе ${ip}: $($_.Exception.Message)"
     }
 } else {
-    $problems += "У компьютера нет адреса Tailscale. Человек должен войти: значок Tailscale возле часов, Log in, аккаунт команды."
+    $problems += "Не нашёл адрес компьютера в локальной сети: нет подключения с маршрутом по умолчанию. Подключи компьютер к сети."
 }
 
 if ($missing -notcontains $ChatModel) {

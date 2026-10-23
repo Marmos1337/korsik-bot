@@ -1,9 +1,10 @@
-﻿# Installs Ollama and Tailscale, removes Ollama from autostart and closes port 11434
-# to everything except Tailscale. Models are downloaded later by pull-models.ps1,
-# which runs without administrator rights.
+﻿# Installs Ollama, removes it from autostart and opens port 11434 only to the bot's server
+# (-AllowFrom, one or more IPv4 addresses separated by commas). Models are downloaded later
+# by pull-models.ps1, which runs without administrator rights.
 # Needs administrator rights, the command that asks for them is in README.md.
 # Safe to run again: what is already done is skipped or set to the same values.
 param(
+    [string]$AllowFrom = "192.168.1.60",
     [switch]$NoSleep,
     [string]$LogPath
 )
@@ -21,14 +22,8 @@ try {
     Write-Host "Не получилось переключить вывод на UTF-8, русский текст может прийти кривым."
 }
 
-$tailscaleRange = "100.64.0.0/10"
-# OLLAMA_HOST=0.0.0.0 makes Go open a dual-stack socket on Windows ([::]:11434),
-# so the block has to cover all IPv6 as well, not only IPv4 outside Tailscale.
-$otherAddresses = @(
-    "0.0.0.0-100.63.255.255",
-    "100.128.0.0-255.255.255.255",
-    "::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
-)
+# Rules from the version that worked through Tailscale.
+$oldRules = @("Ollama 11434 allow Tailscale", "ollama.exe allow Tailscale")
 
 function Fail($text) {
     Write-Host $text -ForegroundColor Red
@@ -57,22 +52,21 @@ function Install-WithWinget($id, $title) {
     Update-SessionPath
 }
 
-# Right after installation the adapter can take a few seconds to appear.
-function Find-TailscaleAdapter {
-    for ($i = 0; $i -lt 15; $i++) {
-        $adapter = Get-NetAdapter -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -eq "Tailscale" -or $_.InterfaceDescription -like "Tailscale*" } |
-            Select-Object -First 1
-        if ($adapter) { return $adapter }
-        Start-Sleep -Seconds 2
-    }
-    return $null
-}
-
 # Removing and creating again is the simplest way to get exactly these settings on every run.
 function Reset-Rule($name, $description, $settings) {
     Remove-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
     New-NetFirewallRule -DisplayName $name -Description $description -Direction Inbound -Profile Any -Protocol TCP -LocalPort $port @settings -ErrorAction Stop | Out-Null
+}
+
+# With -File PowerShell passes "a,b" as one string, so the list is split here.
+$allowList = @($AllowFrom -split "[,;\s]+" | Where-Object { $_ } | Select-Object -Unique)
+if ($allowList.Count -eq 0) {
+    Fail "Не задан ни один адрес в -AllowFrom."
+}
+foreach ($address in $allowList) {
+    if (-not (Test-Ipv4 $address)) {
+        Fail "'$address' в -AllowFrom не похож на IPv4-адрес. Пример: -AllowFrom 192.168.1.60"
+    }
 }
 
 if (-not (Test-Elevated)) {
@@ -107,17 +101,6 @@ if ($ollama) {
     $ollama = Find-Ollama
     if (-not $ollama) {
         Fail "Ollama не нашлась после установки. Запусти скрипт ещё раз."
-    }
-}
-
-$tailscale = Find-Tailscale
-if ($tailscale) {
-    Write-Host "Tailscale уже стоит: $tailscale"
-} else {
-    Install-WithWinget "Tailscale.Tailscale" "Tailscale"
-    $tailscale = Find-Tailscale
-    if (-not $tailscale) {
-        Fail "Tailscale не нашёлся после установки. Запусти скрипт ещё раз."
     }
 }
 
@@ -164,45 +147,56 @@ foreach ($name in @("OLLAMA_HOST", "OLLAMA_KEEP_ALIVE")) {
 }
 
 # When the user presses Cancel in the firewall prompt, Windows adds its own block for ollama.exe.
-# It would also block Tailscale, and our rules below already block everything else.
+# It would also block the server, and our rules below already block everything else.
 $appFilters = @(Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue | Where-Object { $_.Program -like "*\ollama.exe" })
 foreach ($filter in $appFilters) {
     $rule = $filter | Get-NetFirewallRule -ErrorAction SilentlyContinue
     if (-not $rule) { continue }
     if ([string]$rule.Action -eq "Block" -and [string]$rule.Direction -eq "Inbound" -and $firewallRules -notcontains $rule.DisplayName) {
         Remove-NetFirewallRule -Name $rule.Name
-        Write-Host "Убрал правило брандмауэра '$($rule.DisplayName)': оно запрещало ollama.exe и Tailscale тоже."
+        Write-Host "Убрал правило брандмауэра '$($rule.DisplayName)': оно запрещало ollama.exe и для сервера тоже."
     }
 }
 
-$adapter = Find-TailscaleAdapter
-$blockSettings = @{ Action = "Block"; RemoteAddress = $otherAddresses }
-$allowSettings = @{ Action = "Allow"; RemoteAddress = $tailscaleRange }
-if ($adapter) {
-    $allowSettings.InterfaceAlias = $adapter.Name
+foreach ($name in $oldRules) {
+    if (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue) {
+        Remove-NetFirewallRule -DisplayName $name
+        Write-Host "Убрал старое правило брандмауэра '$name'."
+    }
 }
+
+$blocked = @(Get-BlockedAddresses $allowList)
+$blockSettings = @{ Action = "Block"; RemoteAddress = $blocked }
+$allowSettings = @{ Action = "Allow"; RemoteAddress = $allowList }
 
 # The ollama.exe rules repeat the port rules for the program itself. With a rule for the program
 # Windows has nothing to ask about when Ollama starts listening, so there is no firewall prompt.
 try {
-    Reset-Rule $portBlockRule "Корсик: порт модели закрыт для всех, кроме сети Tailscale" $blockSettings
-    Reset-Rule $appBlockRule "Корсик: ollama.exe закрыта для всех, кроме сети Tailscale" ($blockSettings + @{ Program = $ollama })
-    Reset-Rule $portAllowRule "Корсик: порт модели открыт только для сети Tailscale" $allowSettings
-    Reset-Rule $appAllowRule "Корсик: ollama.exe открыта только для сети Tailscale" ($allowSettings + @{ Program = $ollama })
+    Reset-Rule $portBlockRule "Корсик: порт модели закрыт для всех, кроме сервера бота" $blockSettings
+    Reset-Rule $appBlockRule "Корсик: ollama.exe закрыта для всех, кроме сервера бота" ($blockSettings + @{ Program = $ollama })
+    Reset-Rule $portAllowRule "Корсик: порт модели открыт только для сервера бота" $allowSettings
+    Reset-Rule $appAllowRule "Корсик: ollama.exe открыта только для сервера бота" ($allowSettings + @{ Program = $ollama })
 } catch {
     Fail "Не получилось настроить брандмауэр: $($_.Exception.Message)"
 }
 
-$stored = @((Get-NetFirewallRule -DisplayName $portBlockRule | Get-NetFirewallAddressFilter).RemoteAddress)
-Write-Host "Порт $port закрыт для адресов: $($stored -join ', ')"
-if (-not ($stored -like "*:*")) {
-    Fail "Windows не сохранил запрет для IPv6, по IPv6 порт остался бы открыт. Пришли этот вывод Степану."
+# Windows may silently drop or change an address it did not like, so read back what it saved.
+$expected = @{
+    $portBlockRule = $blocked
+    $appBlockRule = $blocked
+    $portAllowRule = $allowList
+    $appAllowRule = $allowList
 }
-if ($adapter) {
-    Write-Host "Порт $port открыт только для $tailscaleRange и только через адаптер '$($adapter.Name)'."
-} else {
-    Write-Host "Адаптер Tailscale не нашёлся, поэтому порт $port открыт для $tailscaleRange на любом адаптере. После входа в Tailscale запусти скрипт ещё раз, он привяжет правило к адаптеру." -ForegroundColor Yellow
+foreach ($name in $firewallRules) {
+    $stored = @((Get-NetFirewallRule -DisplayName $name | Get-NetFirewallAddressFilter).RemoteAddress)
+    Write-Host "Правило '$name': $($stored -join ', ')"
+    if (-not (Test-SameAddresses $stored $expected[$name])) {
+        Fail "Windows сохранила в правиле '$name' не те адреса. Ждали: $($expected[$name] -join ', '). Пришли этот журнал Степану."
+    }
 }
+
+Set-Content -Path $allowFromFile -Encoding UTF8 -Value (@("# Адреса, которым открыт порт $port. Менять через setup-ollama.ps1 -AllowFrom.") + $allowList)
+Write-Host "Порт $port открыт только для: $($allowList -join ', '). Весь остальной IPv4 и весь IPv6 закрыты."
 
 if ($NoSleep) {
     powercfg /change standby-timeout-ac 0
@@ -217,13 +211,13 @@ if ($left.Count -gt 0) {
     Fail "Не получилось остановить Ollama ($($left -join ', ')). Закрой её в диспетчере задач и запусти скрипт снова."
 }
 
-$ip = Get-TailscaleIp $tailscale
+$ip = Get-LanIp
 Write-Host ""
 Write-Host "Установка закончена, Ollama не запущена."
 if ($ip) {
-    Write-Host "Tailscale подключен, адрес этого компьютера: $ip"
+    Write-Host "Адрес этого компьютера в локальной сети: $ip. Для бота: OLLAMA_URL=http://${ip}:$port"
 } else {
-    Write-Host "Tailscale ещё не подключен. Человек должен войти: значок Tailscale возле часов, Log in, аккаунт команды." -ForegroundColor Yellow
+    Write-Host "Не нашёл адрес этого компьютера в локальной сети: нет подключения с маршрутом по умолчанию." -ForegroundColor Yellow
 }
 Write-Host "Дальше без прав администратора: pull-models.ps1 скачает модели и положит на рабочий стол ярлык 'Корсик модель'."
 

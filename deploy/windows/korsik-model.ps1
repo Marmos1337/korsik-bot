@@ -33,6 +33,7 @@ $shared = [hashtable]::Synchronized(@{
     Models = ""
     Gpu = ""
     Ip = ""
+    Allowed = ""
     StopFailed = $false
     CloseAfterStop = $false
     CloseNow = $false
@@ -45,7 +46,7 @@ $settings = @{
     EmbedModel = $EmbedModel
 }
 
-# Everything slow (HTTP, nvidia-smi, tailscale, firewall) runs in a separate runspace,
+# Everything slow (HTTP, nvidia-smi, network, firewall) runs in a separate runspace,
 # so the window never freezes. The window only reads $shared on a timer.
 $workerScript = {
     . (Join-Path $settings.Folder "common.ps1")
@@ -53,7 +54,6 @@ $workerScript = {
     $chatModel = $settings.ChatModel
     $embedModel = $settings.EmbedModel
     $ollama = Find-Ollama
-    $tailscale = Find-Tailscale
 
     function Add-Log($text) {
         [void]$shared.Log.Add((Get-Date -Format "HH:mm:ss") + "  " + $text)
@@ -86,7 +86,13 @@ $workerScript = {
         }
         $shared.Models = $models
         $shared.Gpu = Get-GpuMemory
-        $shared.Ip = Get-TailscaleIp $tailscale
+        $shared.Ip = Get-LanIp
+        $allowed = @(Get-AllowFrom)
+        if ($allowed.Count -gt 0) {
+            $shared.Allowed = $allowed -join ", "
+        } else {
+            $shared.Allowed = "список не задан, запусти setup-ollama.ps1"
+        }
 
         if ($shared.Busy -and -not $Initial) { return }
         $state = $shared.State
@@ -123,8 +129,8 @@ $workerScript = {
             Set-Error "Не нашёл ollama.exe. Запусти setup-ollama.ps1."
             return
         }
-        if (-not (Get-TailscaleIp $tailscale)) {
-            Add-Log "Tailscale не подключен, бот модель не увидит. Открой Tailscale возле часов и войди."
+        if (-not (Get-LanIp)) {
+            Add-Log "Компьютер не подключён к сети, бот модель не увидит."
         }
 
         $left = @(Stop-Ollama)
@@ -379,7 +385,9 @@ Add-Row $modelsLabel "Модели"
 $gpuLabel = New-Label "" 320
 Add-Row $gpuLabel "Видеокарта"
 $ipLabel = New-Label "" 320
-Add-Row $ipLabel "Tailscale"
+Add-Row $ipLabel "Адрес в сети"
+$allowedLabel = New-Label "" 320
+Add-Row $allowedLabel "Открыт для"
 
 $envCaption = New-Label "Строки для .env бота:" 440
 $envCaption.ForeColor = [System.Drawing.Color]::DimGray
@@ -449,13 +457,14 @@ function Update-Window {
 
     Set-Text $modelsLabel $shared.Models
     Set-Text $gpuLabel $shared.Gpu
+    Set-Text $allowedLabel $shared.Allowed
     $ip = $shared.Ip
     if ($ip) {
         Set-Text $ipLabel $ip
         Set-Text $envBox "OLLAMA_URL=http://${ip}:$port`r`nLLM_MODEL=$ChatModel`r`nEMBED_MODEL=$EmbedModel"
     } else {
-        Set-Text $ipLabel "не подключен"
-        Set-Text $envBox "Появятся, когда Tailscale подключится."
+        Set-Text $ipLabel "нет подключения к сети"
+        Set-Text $envBox "Появятся, когда компьютер подключится к сети."
     }
 
     while ($script:shownLines -lt $shared.Log.Count) {

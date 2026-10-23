@@ -5,10 +5,14 @@ $port = 11434
 $localUrl = "http://127.0.0.1:$port"
 $serverLog = Join-Path $env:LOCALAPPDATA "Ollama\korsik-serve.log"
 
+# setup-ollama.ps1 writes here the addresses that may reach the model (the bot's server),
+# the window and check-ollama.ps1 read them to know what the rules should look like.
+$allowFromFile = Join-Path $PSScriptRoot "allow-from.txt"
+
 $portBlockRule = "Ollama 11434 block others"
-$portAllowRule = "Ollama 11434 allow Tailscale"
+$portAllowRule = "Ollama 11434 allow server"
 $appBlockRule = "ollama.exe block others"
-$appAllowRule = "ollama.exe allow Tailscale"
+$appAllowRule = "ollama.exe allow server"
 $firewallRules = @($portBlockRule, $portAllowRule, $appBlockRule, $appAllowRule)
 
 $profileNames = @{
@@ -25,19 +29,87 @@ function Find-Ollama {
     return $null
 }
 
-function Find-Tailscale {
-    $path = "$env:ProgramFiles\Tailscale\tailscale.exe"
-    if (Test-Path $path) { return $path }
-    $command = Get-Command tailscale.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($command) { return $command.Source }
-    return $null
+# The IPv4 address of the adapter that holds the default route, that is the one the server sees.
+function Get-LanIp {
+    $route = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -PolicyStore ActiveStore -ErrorAction SilentlyContinue |
+        Sort-Object -Property { $_.RouteMetric + $_.InterfaceMetric } |
+        Select-Object -First 1
+    if (-not $route) { return $null }
+    $address = Get-NetIPAddress -InterfaceIndex $route.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -notlike "169.254.*" } |
+        Select-Object -First 1
+    if (-not $address) { return $null }
+    return $address.IPAddress
 }
 
-function Get-TailscaleIp($tailscale) {
-    if (-not $tailscale) { return $null }
-    $output = & $tailscale ip -4 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $output) { return $null }
-    return ([string]($output | Select-Object -First 1)).Trim()
+function Get-AllowFrom {
+    if (-not (Test-Path $allowFromFile)) { return }
+    foreach ($line in Get-Content -Path $allowFromFile -Encoding UTF8) {
+        $line = $line.Trim()
+        if ($line -and -not $line.StartsWith("#")) { $line }
+    }
+}
+
+function Test-Ipv4($text) {
+    $ip = $null
+    if (-not [System.Net.IPAddress]::TryParse($text, [ref]$ip)) { return $false }
+    # TryParse also takes things like "60" or "1.60", so the four parts are checked too.
+    return ($ip.AddressFamily -eq "InterNetwork") -and ($text.Split(".").Count -eq 4)
+}
+
+function ConvertTo-Number($ip) {
+    $bytes = ([System.Net.IPAddress]::Parse($ip)).GetAddressBytes()
+    return ([int64]$bytes[0] -shl 24) + ([int64]$bytes[1] -shl 16) + ([int64]$bytes[2] -shl 8) + [int64]$bytes[3]
+}
+
+function ConvertTo-Ip($number) {
+    return "{0}.{1}.{2}.{3}" -f (($number -shr 24) -band 255), (($number -shr 16) -band 255), (($number -shr 8) -band 255), ($number -band 255)
+}
+
+function Format-Range($first, $last) {
+    if ($first -eq $last) { return (ConvertTo-Ip $first) }
+    return "$(ConvertTo-Ip $first)-$(ConvertTo-Ip $last)"
+}
+
+# Everything except the allowed addresses: IPv4 ranges around them and all of IPv6.
+# OLLAMA_HOST=0.0.0.0 makes Go open a dual-stack socket on Windows ([::]:11434),
+# so without the IPv6 part the port would stay open over IPv6.
+function Get-BlockedAddresses($allowFrom) {
+    $numbers = @($allowFrom | ForEach-Object { ConvertTo-Number $_ } | Sort-Object -Unique)
+    $ranges = @()
+    $next = [int64]0
+    foreach ($number in $numbers) {
+        if ($number -gt $next) {
+            $ranges += Format-Range $next ($number - 1)
+        }
+        $next = $number + 1
+    }
+    if ($next -le 4294967295) {
+        $ranges += Format-Range $next 4294967295
+    }
+    $ranges += "::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
+    return $ranges
+}
+
+# Windows may write an address differently from how it was given (IPv6 especially),
+# so both sides are parsed and printed the same way before comparing.
+function Format-Address($entry) {
+    $entry = ([string]$entry) -replace '/(32|255\.255\.255\.255)$', ''
+    $parts = foreach ($part in $entry.Split("-")) {
+        $ip = $null
+        if ([System.Net.IPAddress]::TryParse($part.Trim(), [ref]$ip)) {
+            $ip.ToString()
+        } else {
+            $part.Trim().ToLower()
+        }
+    }
+    return ($parts -join "-")
+}
+
+function Test-SameAddresses($stored, $expected) {
+    $left = @($stored | ForEach-Object { Format-Address $_ } | Sort-Object) -join ","
+    $right = @($expected | ForEach-Object { Format-Address $_ } | Sort-Object) -join ","
+    return $left -eq $right
 }
 
 function Test-Elevated {
@@ -68,11 +140,26 @@ function Get-FirewallProblem([switch]$WithRules) {
         }
     }
     if ($WithRules) {
+        $allowFrom = @(Get-AllowFrom)
+        if ($allowFrom.Count -eq 0) {
+            return "Нет списка адресов, которым открыт порт ($allowFromFile). Запусти setup-ollama.ps1."
+        }
+        $blocked = @(Get-BlockedAddresses $allowFrom)
+        $expected = @{
+            $portBlockRule = $blocked
+            $appBlockRule = $blocked
+            $portAllowRule = $allowFrom
+            $appAllowRule = $allowFrom
+        }
         $found = @(Get-NetFirewallRule -DisplayName $firewallRules -ErrorAction SilentlyContinue)
         foreach ($name in $firewallRules) {
             $rule = $found | Where-Object { $_.DisplayName -eq $name -and [string]$_.Enabled -eq "True" } | Select-Object -First 1
             if (-not $rule) {
                 return "Нет правила брандмауэра '$name' или оно выключено. Запусти setup-ollama.ps1."
+            }
+            $stored = @(($rule | Get-NetFirewallAddressFilter).RemoteAddress)
+            if (-not (Test-SameAddresses $stored $expected[$name])) {
+                return "Правило брандмауэра '$name' пускает не те адреса, что записаны в $allowFromFile. Запусти setup-ollama.ps1."
             }
         }
     }
