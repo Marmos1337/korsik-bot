@@ -1,0 +1,21 @@
+services:
+  korsik:
+    build: .
+    container_name: korsik-bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # inside the container the cabinet must listen on all interfaces, the host side below stays on 127.0.0.1
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/srv/korsik/data
+      # a scenario uploaded in the cabinet replaces the file, so it has to live outside the image
+      - ./scenario:/srv/korsik/scenario
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -1,0 +1,15 @@
+.git
+.venv
+.autopilot
+.pytest_cache
+__pycache__
+*.pyc
+.env
+.env.*
+data
+tests
+docs
+deploy
+AGENTS.md
+CLAUDE.md
+.DS_Store
