@@ -24,7 +24,8 @@ SOURCE_TAIL = re.compile(r"[(\[]?\s*источник\w*\s*:?\s*(?:фрагмен
 
 # asked to rewrite every question, qwen3:8b adds things («Где поесть?» -> «Где можно поесть в городе?»),
 # asked to be careful, it rewrites nothing; so the code decides which question needs the history
-FOLLOW_UP_WORDS = {"он", "она", "оно", "они", "его", "ее", "их", "ему", "ей", "им", "нему", "ней", "них",
+FOLLOW_UP_WORDS = {"он", "она", "оно", "они", "его", "ее", "их", "ему", "ей", "им", "него", "нее", "нему", "ней",
+                   "ним", "нем", "них", "ними",
                    "это", "этот", "эта", "эти", "этого", "этой", "этом", "там", "туда", "тогда"}
 # instead of NO_ANSWER the model sometimes says it in words: «во фрагментах нет информации о ...»
 REFUSALS = ("нет информации", "нет данных", "нет сведений", "нет ответа", "информации нет", "информация отсутствует",
@@ -238,9 +239,6 @@ def _source(hit: knowledge.Hit) -> str:
 
 def _escalation(reason: str, simple_mode: bool = False) -> Answer:
     return Answer(None, [], True, reason, simple_mode or not llm.is_up())
-
-
-# --- checks
 
 
 def grounded(answer: str, fragments: list[str]) -> bool:

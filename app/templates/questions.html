@@ -21,6 +21,7 @@
   </details>
   {% endif %}
   <form method="post" action="/questions/{{ q.id }}/answer">
+    <input type="hidden" name="employee_id" value="{{ q.employee_id }}">
     <label>Ответ новичку <textarea name="answer" required rows="3" cols="70" maxlength="3000"></textarea></label>
     <button>Отправить</button>
   </form>

@@ -127,7 +127,7 @@ def step_due_at(step: Step, start_date: date, tz: str, holidays: set[date],
 
 
 def render_text(step: Step, address: str | None, first_name: str) -> str:
-    # until the employee picks "ты" or "вы" the bot talks on "вы" (spec 4.4)
+    # until the employee picks "ты" or "вы" the bot talks on "вы"
     text = step.text_ty if address == "ty" else (step.text_vy or step.text_ty)
     text = HR_NOTE_RE.sub("", text)
     text = "\n".join(line.rstrip() for line in text.split("\n"))

@@ -74,7 +74,7 @@ def test_embed_returns_one_vector_per_text(ollama):
     assert asyncio.run(llm.embed(["а", "б", "в"])) == [[0.1, 0.2]] * 3
 
 
-def run_watch(monkeypatch, states):
+def run_watch(monkeypatch, states, on_up=None):
     """Runs watch_loop over a fixed list of check() results and returns what on_change got."""
     results = iter(states)
     changes = []
@@ -91,7 +91,7 @@ def run_watch(monkeypatch, states):
     monkeypatch.setattr(llm, "check", fake_check)
     monkeypatch.setattr(llm, "CHECK_EVERY", 0)
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(llm.watch_loop(on_change))
+        asyncio.run(llm.watch_loop(on_change, on_up))
     return changes
 
 
@@ -103,6 +103,16 @@ def test_watch_loop_does_not_repeat_mode_after_restart(monkeypatch):
     db.kv_set("llm_up", "0")
     assert run_watch(monkeypatch, [False, False]) == []
     assert run_watch(monkeypatch, [True]) == [True]
+
+
+def test_watch_loop_fills_missing_vectors_on_every_check_while_the_model_is_up(monkeypatch):
+    calls = []
+
+    async def fill():
+        calls.append("fill")
+
+    run_watch(monkeypatch, [True, True, False, True], fill)
+    assert calls == ["fill"] * 3
 
 
 def test_watch_loop_survives_failing_callback(monkeypatch):

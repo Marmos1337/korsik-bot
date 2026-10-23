@@ -64,10 +64,9 @@ MODEL_DOWN_TEXT = (
 )
 MODEL_UP_TEXT = "Языковая модель снова доступна, отвечаю на вопросы как обычно."
 QUESTION_GONE = "Этого вопроса больше нет: новичок удалил свои данные."
+NOT_DELIVERED = ("Не получилось доставить ответ новичку, вопрос остался открытым. "
+                 "Нажмите «Ответить» под вопросом и пришлите ответ ещё раз.")
 NOT_YOUR_QUESTION = "Этот новичок закреплён за другим рекрутером, вопрос ждёт его ответа."
-
-
-# --- escalations
 
 
 async def escalate(employee, question: str, reason: str) -> int:
@@ -108,20 +107,22 @@ async def _tell_employee(employee, reason: str) -> None:
             await messaging.send_to_employee(employee, f"{text}\n\n{extra}" if extra else text)
 
 
-async def deliver_answer(escalation_id: int, answer: str, answered_by: str) -> None:
+async def deliver_answer(escalation_id: int, answer: str, answered_by: str, employee_id: int) -> None:
     """Sends the HR answer to the employee and closes the question. Also used by the admin pages.
 
     ValueError with a text for people: the question is gone or somebody has answered it already.
     """
-    row = db.query_one("SELECT * FROM escalations WHERE id = ?", (escalation_id,))
+    # sqlite gives the id of a deleted question to the next one, so the caller also names whose question it means
+    row = _question(escalation_id, employee_id)
     if row is None:
         raise ValueError(QUESTION_GONE)
     answer = answer.strip()
-    if not _claim(escalation_id, answer, answered_by):
-        raise ValueError(_answered_by(db.query_one("SELECT * FROM escalations WHERE id = ?", (escalation_id,))))
-    employee = db.query_one("SELECT * FROM employees WHERE id = ?", (row["employee_id"],))
-    text = engine.phrase(employee, "hr_answer").format(question=_cut(row["question"], 200), answer=answer)
+    if not _claim(escalation_id, employee_id, answer, answered_by):
+        row = _question(escalation_id, employee_id)
+        raise ValueError(_answered_by(row) if row else QUESTION_GONE)
     try:
+        employee = db.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
+        text = engine.phrase(employee, "hr_answer").format(question=_cut(row["question"], 200), answer=answer)
         for part in messaging.split_text(text):
             await max_api.send_message(part, user_id=employee["max_user_id"])
     except Exception:
@@ -133,15 +134,19 @@ async def deliver_answer(escalation_id: int, answer: str, answered_by: str) -> N
     log.info("escalation %s answered", escalation_id)
 
 
-def _claim(escalation_id: int, answer: str, answered_by: str) -> bool:
+def _question(escalation_id: int, employee_id: int):
+    return db.query_one("SELECT * FROM escalations WHERE id = ? AND employee_id = ?", (escalation_id, employee_id))
+
+
+def _claim(escalation_id: int, employee_id: int, answer: str, answered_by: str) -> bool:
     """Closes an open question in one statement: two recruiters may press «Ответить» at the same time."""
     conn = db.connect()
     try:
         with conn:
             cursor = conn.execute(
                 "UPDATE escalations SET status = 'answered', answer = ?, answered_by = ?, answered_at = ?"
-                " WHERE id = ? AND status = 'open'",
-                (answer, answered_by, db.now_iso(), escalation_id),
+                " WHERE id = ? AND employee_id = ? AND status = 'open'",
+                (answer, answered_by, db.now_iso(), escalation_id, employee_id),
             )
         return cursor.rowcount == 1
     finally:
@@ -150,9 +155,6 @@ def _claim(escalation_id: int, answer: str, answered_by: str) -> bool:
 
 def _answered_by(escalation) -> str:
     return f"На этот вопрос уже ответили ({escalation['answered_by']})."
-
-
-# --- recruiters
 
 
 def link_recruiter(max_user_id: int, code: str):
@@ -207,7 +209,7 @@ async def _on_button(recruiter, payload: str, in_hr_chat: bool) -> None:
         if escalation["status"] == "answered":
             await _to_recruiter(recruiter, _answered_by(escalation))
             return
-        db.kv_set(_wait_key(recruiter), f"{escalation_id} {db.now_iso()}")
+        db.kv_set(_wait_key(recruiter), f"{escalation_id} {escalation['employee_id']} {db.now_iso()}")
         await _to_recruiter(
             recruiter,
             f"Напишите ответ на вопрос «{_cut(escalation['question'], 200)}» следующим сообщением, "
@@ -233,37 +235,43 @@ async def _save_to_knowledge(recruiter, escalation, wanted: bool) -> None:
 
 async def _on_text(recruiter, text: str) -> None:
     command = text.split()[0].lower() if text.startswith("/") else ""
-    escalation_id = _waiting_for(recruiter)
+    waiting = _waiting_for(recruiter)
     if command == "/сводка":
         await _to_recruiter(recruiter, digest_text(recruiter["id"]))
     elif command == "/отмена":
         db.kv_set(_wait_key(recruiter), "")
         await _to_recruiter(recruiter, "Хорошо, ответ отменён.")
-    elif escalation_id is not None and text and not command:
+    elif waiting is not None and text and not command:
         db.kv_set(_wait_key(recruiter), "")
+        escalation_id, employee_id = waiting
         try:
-            await deliver_answer(escalation_id, text, recruiter["name"])
+            await deliver_answer(escalation_id, text, recruiter["name"], employee_id)
         except ValueError as e:
             await _to_recruiter(recruiter, str(e))
+            return
+        except Exception as e:
+            # deliver_answer has reopened the question; without this line the recruiter would think it went out
+            log.warning("escalation %s: answer was not sent: %s", escalation_id, type(e).__name__)
+            await _to_recruiter(recruiter, NOT_DELIVERED)
             return
         buttons = [[max_api.callback_button("Добавить в базу знаний", f"esc:kb:{escalation_id}:yes"),
                     max_api.callback_button("Не надо", f"esc:kb:{escalation_id}:no")]]
         await _to_recruiter(recruiter, "Отправил ответ новичку. Добавить пару «вопрос-ответ» в базу знаний, "
                                        "чтобы в следующий раз я ответил сам?", buttons)
-    elif escalation_id is not None:
+    elif waiting is not None:
         await _to_recruiter(recruiter, "Пришлите, пожалуйста, ответ текстом.")
     else:
         await _to_recruiter(recruiter, RECRUITER_HELP)
 
 
-def _waiting_for(recruiter) -> int | None:
-    """The question this recruiter pressed «Ответить» on, if it was less than a day ago."""
-    escalation_id, _, since = (db.kv_get(_wait_key(recruiter)) or "").partition(" ")
-    if not escalation_id.isdigit() or not since:
+def _waiting_for(recruiter) -> tuple[int, int] | None:
+    """(question id, newcomer id) this recruiter pressed «Ответить» on, if it was less than a day ago."""
+    parts = (db.kv_get(_wait_key(recruiter)) or "").split()
+    if len(parts) != 3 or not parts[0].isdigit() or not parts[1].isdigit():
         return None
-    if datetime.now(timezone.utc) - datetime.fromisoformat(since) > WAIT_LIMIT:
+    if datetime.now(timezone.utc) - datetime.fromisoformat(parts[2]) > WAIT_LIMIT:
         return None
-    return int(escalation_id)
+    return int(parts[0]), int(parts[1])
 
 
 def _in_hr_chat(update: dict) -> bool:
@@ -290,9 +298,6 @@ async def _ack(callback_id: str | None) -> None:
         await max_api.answer_callback(callback_id, engine.ACK_TEXT)
     except Exception as e:
         log.warning("answering a callback failed: %s", e)
-
-
-# --- notifications
 
 
 async def notify_recruiter(employee, text: str, buttons=None) -> None:
@@ -322,10 +327,6 @@ async def on_llm_mode_change(up: bool) -> None:
         await _send_safely(row["max_user_id"], None, text)
     if cfg.HR_CHAT_ID:
         await _send_safely(None, cfg.HR_CHAT_ID, text)
-    if up:
-        # documents uploaded while the model was away get their vectors now
-        done = await knowledge.embed_missing()
-        log.info("model is back, %s chunks embedded", done)
 
 
 async def survey_finished(employee, step_ids: list[str]) -> None:
@@ -348,9 +349,6 @@ def _short_question(text: str) -> str:
     questions = re.findall(r"[^.!?\n]*\?", text)
     question = questions[-1] if questions else text.splitlines()[0]
     return _cut(question.strip(), 100)
-
-
-# --- pulse
 
 
 async def analyze_pulse(employee, text: str) -> None:
@@ -403,9 +401,6 @@ def _pulse_by_words(text: str) -> tuple[str, str, int, str]:
     return "нейтральный", topic, 0, ""
 
 
-# --- digest
-
-
 def digest_text(recruiter_id: int) -> str:
     employees = db.query("SELECT * FROM employees WHERE recruiter_id = ? ORDER BY start_date, id", (recruiter_id,))
     if not employees:
@@ -445,9 +440,6 @@ def _stage(employee) -> str:
     if months >= cfg.PROBATION_MONTHS:
         return "испытательный срок позади"
     return f"{(today - start).days + 1}-й день работы, {months + 1}-й месяц"
-
-
-# --- small helpers
 
 
 def _who(employee) -> str:

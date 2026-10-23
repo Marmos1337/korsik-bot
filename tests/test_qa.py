@@ -171,6 +171,12 @@ def test_follow_up_is_rewritten_with_history_before_search(model, found):
     assert result.text == "Столовая работает до 16:00.\n\nИсточник: ДЕМО: питание"
 
 
+def test_pronouns_after_a_preposition_mark_a_follow_up():
+    for question in ("Сколько у него выходных?", "А у неё?", "Можно с ним связаться?", "Что в нём написано?"):
+        assert qa.is_follow_up(question), question
+    assert not qa.is_follow_up("Сколько дней отпуска?")
+
+
 def test_question_that_stands_on_its_own_is_searched_as_is(model, found):
     # live qwen3 turned «Где поесть?» into «Где можно поесть в городе?», so only follow-ups are rewritten
     employee = make_employee()

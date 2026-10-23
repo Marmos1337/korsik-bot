@@ -1,13 +1,11 @@
 import asyncio
-import sys
-import types
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import openpyxl
 import pytest
 
-from app import db, engine, max_api
+from app import db, engine, hr, max_api
 from app.config import cfg
 
 UTC = timezone.utc
@@ -66,13 +64,17 @@ class Clock:
         return self.now
 
 
+async def no_summary(employee, step_ids):
+    pass
+
+
 @pytest.fixture(autouse=True)
 def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "SCENARIO_PATH", str(write_scenario(tmp_path / "scenario.xlsx", ROWS)))
     monkeypatch.setattr(cfg, "HOLIDAYS_PATH", str(tmp_path / "no-holidays.txt"))
     monkeypatch.setattr(cfg, "DEMO_MODE", False)
-    # engine tests run without hr.py: it is missing unless a test puts a fake in its place
-    monkeypatch.setitem(sys.modules, "app.hr", None)
+    # the summary is hr's part; with HR_CHAT_ID in .env it would land in the outbox of these tests
+    monkeypatch.setattr(hr, "survey_finished", no_summary)
     assert engine.reload_scenario() == []
 
 
@@ -103,13 +105,11 @@ def outbox(monkeypatch):
 @pytest.fixture
 def survey_summaries(monkeypatch):
     calls = []
-    hr = types.ModuleType("app.hr")
 
     async def survey_finished(employee, step_ids):
         calls.append((employee["id"], step_ids))
 
-    hr.survey_finished = survey_finished
-    monkeypatch.setitem(sys.modules, "app.hr", hr)
+    monkeypatch.setattr(hr, "survey_finished", survey_finished)
     return calls
 
 
@@ -163,9 +163,6 @@ def linked(clock, outbox, **kw):
     return employee_id
 
 
-# --- linking
-
-
 def test_link_by_unknown_code_or_by_second_account(clock, outbox):
     employee_id = make_employee()
 
@@ -187,7 +184,7 @@ def test_start_steps_wait_for_address_choice(clock, outbox):
     greeting, question = outbox
     assert greeting["user_id"] == 500
     assert greeting["text"].startswith("Здравствуйте! Я Корсик.")
-    # spec 4.9: the first message says what is kept and how to delete it, still on «вы»
+    # the first message says what is kept and how to delete it, still on «вы»
     assert "/delete" in greeting["text"] and "ваш" in greeting["text"] and "твои" not in greeting["text"]
     assert question["text"] == "На ты или на вы?"
     assert payloads(question) == ["addr:ty", "addr:vy"]
@@ -230,9 +227,6 @@ def test_real_scenario_start(clock, outbox, monkeypatch):
     assert {"4", "5", "7", "8", "9", "11", "14", "15"} == set(sent)
 
 
-# --- schedule
-
-
 def test_tick_sends_step_once_when_due_for_matching_tags(clock, outbox):
     linked(clock, outbox, tags="GrPP")
 
@@ -264,6 +258,30 @@ def test_step_overdue_at_linking_is_skipped_except_start(clock, outbox):
         "1": "sent", "2": "answered", "3": "sent", "10": "skipped", "12": "sent", "13": "sent"}
 
 
+def test_step_that_max_keeps_refusing_is_skipped_and_the_day_goes_on(clock, outbox, monkeypatch, caplog):
+    employee_id = linked(clock, outbox, tags="GrPP")
+    deliver = max_api.send_message
+    tries = []
+
+    async def blocked(text, **kwargs):
+        tries.append(text)
+        raise max_api.MaxError(403, "chat.denied")
+
+    monkeypatch.setattr(max_api, "send_message", blocked)
+    clock.now = FIRST_DAY_10
+    for _ in range(10):
+        run(engine.tick())
+
+    assert statuses(employee_id)["10"] == "skipped"
+    assert 1 < len(tries) < 10
+    assert [r.getMessage() for r in caplog.records if r.exc_info] == []
+
+    monkeypatch.setattr(max_api, "send_message", deliver)
+    clock.now = FIRST_DAY_13
+    run(engine.tick())
+    assert texts(outbox)[-2:] == ["Подсказать, где обедать?", "Вот справочник коллег"]
+
+
 def test_survey_step_blocks_then_reminds_once_then_is_skipped(clock, outbox):
     employee_id = choose(clock, outbox, at=THIRD_DAY_1730)
     assert texts(outbox) == ["Отлично, Аня, на ты.", "Оцени первые дни"]
@@ -290,7 +308,7 @@ def test_survey_step_blocks_then_reminds_once_then_is_skipped(clock, outbox):
 
 
 def test_question_step_holds_nothing_and_its_buttons_work_later(clock, outbox):
-    # D01: branches of a «вопрос» are optional, so the day goes on without the answer
+    # branches of a «вопрос» are optional, so the day goes on without the answer
     employee_id = linked(clock, outbox, tags="GrPP")
     clock.now = FIRST_DAY_1230
     run(engine.tick())
@@ -326,9 +344,6 @@ def test_branch_button_sends_branch_for_tags(clock, outbox):
     assert outbox == []
 
 
-# --- surveys
-
-
 def test_survey_answers_and_what_went_wrong(clock, outbox, survey_summaries):
     employee_id = choose(clock, outbox, at=THIRD_DAY_1730)
     # linked late: the first day steps are skipped, the survey is due right now
@@ -360,15 +375,6 @@ def test_survey_answers_and_what_went_wrong(clock, outbox, survey_summaries):
     assert not run(engine.on_text(employee(employee_id), "А где столовая?"))
 
 
-def test_survey_works_without_hr_module(clock, outbox, monkeypatch):
-    monkeypatch.setitem(sys.modules, "app.hr", None)  # import of app.hr fails as if the file did not exist
-    employee_id = linked(clock, outbox, at=THIRD_DAY_1730)
-    press(employee_id, "scale:20:9")
-    press(employee_id, "step:21:0")
-    assert run(engine.on_text(employee(employee_id), "Всё хорошо"))
-    assert statuses(employee_id)["23"] == "sent"
-
-
 def test_text_answer_without_follow_up_gets_thanks(clock, outbox, monkeypatch):
     rows = ROWS[:3] + [("40", "р2 10:00", "", "", "текст", "Расскажи о себе", "Расскажите о себе")]
     write_scenario(cfg.SCENARIO_PATH, rows)
@@ -380,9 +386,6 @@ def test_text_answer_without_follow_up_gets_thanks(clock, outbox, monkeypatch):
     assert run(engine.on_text(employee(employee_id), "Я инженер"))
     assert texts(outbox) == ["Спасибо, записал."]
     assert answers(employee_id) == [("40", "Я инженер", None)]
-
-
-# --- demo, special steps, delete
 
 
 def test_demo_next_moves_time_to_the_next_step(clock, outbox, monkeypatch):

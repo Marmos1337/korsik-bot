@@ -1,6 +1,6 @@
 from app import db
 
-# copied by hand from interfaces.md, so a renamed column shows up here
+# written out by hand, so a renamed column shows up here
 EXPECTED_COLUMNS = {
     "recruiters": ["id", "name", "max_user_id", "invite_code", "created_at"],
     "employees": [

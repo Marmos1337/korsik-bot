@@ -98,9 +98,6 @@ def add_pulse(employee_id, text, risk, reason=""):
                " VALUES (?, ?, 'негативный', 'другое', ?, ?, ?)", (employee_id, text, risk, reason, db.now_iso()))
 
 
-# --- login
-
-
 def test_pages_ask_for_login(client):
     for path in ("/", "/employees/1", "/recruiters", "/knowledge", "/questions", "/scenario", "/export.xlsx"):
         response = client.get(path)
@@ -142,8 +139,6 @@ def test_login_gives_a_protected_cookie_and_logout_takes_it_back(client):
     assert client.post("/logout").status_code == 303
     assert client.get("/").status_code == 303
 
-
-# --- employees and recruiters
 
 NEW_EMPLOYEE = {"full_name": "Смирнова Анна Ивановна", "first_name": "", "start_date": "2026-11-02",
                 "timezone": "Asia/Novosibirsk", "tags": "GrPP,  Luzhniki", "recruiter_id": ""}
@@ -301,8 +296,6 @@ def test_demo_step_that_cannot_be_sent_is_explained(admin, monkeypatch):
     assert "сообщение не ушло" in admin.get(response.headers["location"]).text
 
 
-# --- documents
-
 VACATION = "Ежегодный оплачиваемый отпуск составляет 28 календарных дней.\n\nОтпуск оформляется заявлением."
 
 
@@ -388,8 +381,6 @@ def test_deleted_document_is_gone_from_the_list_the_search_and_the_disk(admin):
     assert "flash bad" in message_after(admin, admin.post(f"/knowledge/{document_id}/delete"))
 
 
-# --- questions
-
 CONTEXT = [{"role": "employee", "text": "Привет"}, {"role": "bot", "text": "Здравствуйте!"}]
 
 
@@ -421,10 +412,14 @@ def test_open_question_is_visible_even_without_a_recruiter(admin):
     assert "Вопросы (1)" in page
 
 
+def send_answer(admin, question_id, employee_id, text):
+    return admin.post(f"/questions/{question_id}/answer", data={"answer": text, "employee_id": employee_id})
+
+
 def test_answer_from_the_cabinet_reaches_the_newcomer(admin, outbox):
     employee_id = add_employee(max_user_id=500)
     question_id = add_question(employee_id)
-    response = admin.post(f"/questions/{question_id}/answer", data={"answer": "Пропуск в бюро пропусков, 2 этаж"})
+    response = send_answer(admin, question_id, employee_id, "Пропуск в бюро пропусков, 2 этаж")
     assert response.status_code == 303 and response.headers["location"] == "/questions"
     assert len(outbox) == 1 and outbox[0]["user_id"] == 500
     assert "Где взять пропуск?" in outbox[0]["text"] and "Пропуск в бюро пропусков, 2 этаж" in outbox[0]["text"]
@@ -439,18 +434,20 @@ def test_answer_from_the_cabinet_reaches_the_newcomer(admin, outbox):
 
 
 def test_second_answer_is_refused_with_who_answered(admin, outbox):
-    question_id = add_question(add_employee(max_user_id=500))
-    admin.post(f"/questions/{question_id}/answer", data={"answer": "Первый ответ"})
-    response = admin.post(f"/questions/{question_id}/answer", data={"answer": "Второй ответ"})
+    employee_id = add_employee(max_user_id=500)
+    question_id = add_question(employee_id)
+    send_answer(admin, question_id, employee_id, "Первый ответ")
+    response = send_answer(admin, question_id, employee_id, "Второй ответ")
     assert "На этот вопрос уже ответили (кабинет)" in admin.get(response.headers["location"]).text
     assert len(outbox) == 1
 
 
 def test_missing_question_and_empty_answer_are_messages(admin, outbox):
-    gone = admin.post("/questions/999/answer", data={"answer": "Привет"})
+    employee_id = add_employee(max_user_id=500)
+    gone = send_answer(admin, 999, employee_id, "Привет")
     assert hr.QUESTION_GONE in admin.get(gone.headers["location"]).text
-    question_id = add_question(add_employee(max_user_id=500))
-    empty = admin.post(f"/questions/{question_id}/answer", data={"answer": "   "})
+    question_id = add_question(employee_id)
+    empty = send_answer(admin, question_id, employee_id, "   ")
     assert "Впишите ответ" in admin.get(empty.headers["location"]).text
     assert outbox == [] and db.query_one("SELECT status FROM escalations")["status"] == "open"
 
@@ -460,8 +457,9 @@ def test_answer_that_max_did_not_take_leaves_the_question_open(admin, monkeypatc
         raise max_api.MaxError(503, "unavailable")
 
     monkeypatch.setattr(max_api, "send_message", broken_send)
-    question_id = add_question(add_employee(max_user_id=500))
-    response = admin.post(f"/questions/{question_id}/answer", data={"answer": "Ответ"})
+    employee_id = add_employee(max_user_id=500)
+    question_id = add_question(employee_id)
+    response = send_answer(admin, question_id, employee_id, "Ответ")
     assert response.status_code == 303
     page = admin.get(response.headers["location"]).text
     assert "Не получилось отправить" in page and "Где взять пропуск?" in page
@@ -469,13 +467,26 @@ def test_answer_that_max_did_not_take_leaves_the_question_open(admin, monkeypatc
 
 
 def test_question_of_a_newcomer_who_left_the_bot_cannot_be_answered(admin, outbox):
-    question_id = add_question(add_employee(max_user_id=None))
-    response = admin.post(f"/questions/{question_id}/answer", data={"answer": "Ответ"})
+    employee_id = add_employee(max_user_id=None)
+    question_id = add_question(employee_id)
+    response = send_answer(admin, question_id, employee_id, "Ответ")
     assert "не привязан" in admin.get(response.headers["location"]).text
     assert outbox == [] and db.query_one("SELECT status FROM escalations")["status"] == "open"
 
 
-# --- scenario
+def test_answer_from_an_old_page_does_not_reach_the_next_owner_of_the_number(admin, outbox):
+    anna = add_employee(max_user_id=500)
+    question_id = add_question(anna)
+    form = re.search(r'name="employee_id" value="(\d+)"', admin.get("/questions").text)
+    engine.delete_employee_data(anna)
+    ivan = add_employee("Петров Иван", max_user_id=501, code="ivan")
+    assert add_question(ivan, "Где парковка?") == question_id
+
+    response = send_answer(admin, question_id, form.group(1), "Пропуск у охраны")
+
+    assert hr.QUESTION_GONE in admin.get(response.headers["location"]).text
+    assert outbox == [] and db.query_one("SELECT status FROM escalations")["status"] == "open"
+
 
 BAD_ROWS = [
     ("10", "когда-нибудь", "", "", "сообщение", "Текст"),
@@ -546,8 +557,6 @@ def test_scenario_page_reports_the_current_file_and_gives_it_back(admin, scenari
     assert "не удалось открыть файл" in admin.get("/scenario").text
 
 
-# --- excel
-
 def seed_report():
     recruiter_id = add_recruiter("Ольга Петрова")
     employee_id = add_employee("Смирнова Анна", recruiter_id=recruiter_id, tags="GrPP", max_user_id=500)
@@ -605,8 +614,6 @@ def test_empty_cabinet_still_gives_an_excel(admin):
     workbook = openpyxl.load_workbook(io.BytesIO(admin.get("/export.xlsx").content))
     assert workbook.sheetnames == ["Новички", "Опросы", "Флаги", "Вопросы"]
 
-
-# --- escaping
 
 SCRIPT = '<script>alert(1)</script>'
 

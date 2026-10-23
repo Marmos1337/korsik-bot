@@ -37,6 +37,18 @@ FROM_57 = "Текст из строки 57 исходника: ответ сто
 OWN_TEXT = "Текст наш: в korsik_texts его нет."
 WRITE_IN = ("Напиши, пожалуйста, своими словами.", "Напишите, пожалуйста, своими словами.")
 
+# korsik_texts uses em dashes, the bot texts do not: a dash becomes a colon or a comma where the phrase asks
+# for one (the words before the dash are listed), and a hyphen everywhere else
+DASH = "\u2014"
+COLON_AFTER = ("»", "общаться", "задать мне вопрос", "колонке J", "на связи", "для оформления", "спрашивать",
+               "своими словами", "учётной записью", "Наша миссия", "оставили дословно", "открытый вопрос",
+               "Поздравляю", "по подбору", "на выходные", "мне не решить", "подборку", "пролетели", "И напоследок",
+               "как в исходнике")
+COMMA_AFTER = ("🐾", "на выбор", "напиши мне", "напишите мне", "до первого дня", "пока всё", "остались вопросы",
+               "третий день", "напрямую", "горячий период", "нужна помощь", "в консалтинговой", "расскажи",
+               "расскажите", "Давно не писал", "где их брать", "Напиши здесь", "Напишите здесь", "Пора прощаться",
+               "Гадать не хочу")
+
 HOW_TO_READ = """Сценарий Корсика: как читать
 
 Одна строка листа «Сценарий» = одно сообщение бота. Бот находит колонки по названиям.
@@ -77,6 +89,16 @@ HOW_TO_READ = """Сценарий Корсика: как читать
 Комментарий: для людей, бот его не читает.
 
 Строка 3 исходника не шаг: это описание бота, его ставят в профиль бота в МАКС (до 200 символов):"""
+
+
+def no_dashes(text: str) -> str:
+    for words in COLON_AFTER:
+        text = text.replace(f"{words} {DASH} ", f"{words}: ")
+    for words in COMMA_AFTER:
+        text = text.replace(f"{words} {DASH} ", f"{words}, ")
+    # in «Напиши, чего именно нет, ... передам» the comma is already there, the dash just goes
+    text = text.replace(f", {DASH} ", ", ")
+    return text.replace(f" {DASH} ", " - ").replace(DASH, "-")
 
 
 def load_texts(path):
@@ -323,7 +345,7 @@ def write(steps, description: str, out: Path) -> None:
     ws.title = "Сценарий"
     ws.append(HEADERS)
     for step in steps:
-        ws.append(step)
+        ws.append([no_dashes(value) for value in step])
     wrap = Alignment(wrap_text=True, vertical="top")
     for row in ws.iter_rows():
         for cell in row:
@@ -337,7 +359,7 @@ def write(steps, description: str, out: Path) -> None:
     ws.auto_filter.ref = ws.dimensions
 
     notes = wb.create_sheet("Как читать")
-    for line in HOW_TO_READ.split("\n") + [description]:
+    for line in HOW_TO_READ.split("\n") + [no_dashes(description)]:
         notes.append([line])
     notes["A1"].font = Font(bold=True, size=13)
     notes.column_dimensions["A"].width = 120

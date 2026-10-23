@@ -414,8 +414,8 @@ def test_main_starts_the_model_watch_with_hr_notifications(monkeypatch):
 
     started = []
 
-    async def fake_watch(on_change):
-        started.append(on_change)
+    async def fake_watch(on_change, on_up=None):
+        started.append((on_change, on_up))
 
     async def idle():
         pass
@@ -431,7 +431,7 @@ def test_main_starts_the_model_watch_with_hr_notifications(monkeypatch):
 
     asyncio.run(main.main())
 
-    assert started == [hr.on_llm_mode_change]
+    assert started == [(hr.on_llm_mode_change, knowledge.embed_missing)]
 
 
 def test_slow_model_on_one_question_does_not_hold_other_people(outbox, monkeypatch):

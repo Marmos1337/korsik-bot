@@ -86,9 +86,6 @@ templates.env.globals["open_questions"] = lambda: db.query_one(
     "SELECT COUNT(*) AS n FROM escalations WHERE status = 'open'")["n"]
 
 
-# --- access
-
-
 @app.middleware("http")
 async def guard(request: Request, call_next):
     size = request.headers.get("content-length", "")
@@ -164,9 +161,6 @@ async def login(request: Request, password: str = Form("")):
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
-
-
-# --- employees
 
 
 @app.get("/")
@@ -282,9 +276,6 @@ def qr_response(link: str | None) -> Response:
     return Response(image.getvalue(), media_type="image/png")
 
 
-# --- recruiters
-
-
 @app.get("/recruiters")
 def recruiters_page(request: Request):
     rows = db.query(
@@ -309,9 +300,6 @@ def add_recruiter(request: Request, name: str = Form("")):
 def recruiter_qr(recruiter_id: int):
     recruiter = db.query_one("SELECT invite_code FROM recruiters WHERE id = ?", (recruiter_id,))
     return qr_response(engine.invite_link("hr_" + recruiter["invite_code"]) if recruiter else None)
-
-
-# --- documents
 
 
 @app.get("/knowledge")
@@ -386,9 +374,6 @@ async def check_question(request: Request, question: str = Form(""), tags: str =
     return page(request, "knowledge.html", documents=list_documents(), hits=hits, question=question, tags=tags)
 
 
-# --- questions
-
-
 @app.get("/questions")
 def questions_page(request: Request):
     rows = db.query(
@@ -410,17 +395,18 @@ def read_context(raw: str) -> list[dict]:
 
 
 @app.post("/questions/{escalation_id}/answer")
-async def answer_question(request: Request, escalation_id: int, answer: str = Form("")):
+async def answer_question(request: Request, escalation_id: int, answer: str = Form(""), employee_id: int = Form(0)):
     answer = answer.strip()
+    # the form names the newcomer too: after /delete the question number may already belong to someone else
     owner = db.query_one("SELECT e.max_user_id FROM escalations q JOIN employees e ON e.id = q.employee_id"
-                         " WHERE q.id = ?", (escalation_id,))
+                         " WHERE q.id = ? AND q.employee_id = ?", (escalation_id, employee_id))
     if not answer:
         return back(request, "/questions", "Впишите ответ.", bad=True)
     if owner is not None and not owner["max_user_id"]:
         return back(request, "/questions", "Новичок не привязан к боту: удалил свои данные или не открыл "
                                            "ссылку. Ответить некому.", bad=True)
     try:
-        await hr.deliver_answer(escalation_id, answer, "кабинет")
+        await hr.deliver_answer(escalation_id, answer, "кабинет", employee_id)
     except ValueError as e:
         return back(request, "/questions", str(e), bad=True)
     except Exception as e:
@@ -429,9 +415,6 @@ async def answer_question(request: Request, escalation_id: int, answer: str = Fo
         return back(request, "/questions", "Не получилось отправить ответ в МАКС. Вопрос остался открытым, "
                                            "попробуйте ещё раз.", bad=True)
     return back(request, "/questions", "Ответ отправлен новичку.")
-
-
-# --- scenario
 
 
 def read_scenario() -> tuple[list[Step], list[str]]:
@@ -489,9 +472,6 @@ async def upload_scenario(request: Request, file: UploadFile | None = File(None)
     if problems:
         return back(request, "/scenario", "Файл заменён, но бот его не загрузил: " + problems[0], bad=True)
     return back(request, "/scenario", "Сценарий проверен, заменён и загружен в бота.")
-
-
-# --- excel
 
 
 @app.get("/export.xlsx")

@@ -10,7 +10,7 @@ from app.config import cfg
 log = logging.getLogger(__name__)
 
 CHECK_EVERY = 60
-CHAT_TIMEOUT = 180
+CHAT_TIMEOUT = 60
 EMBED_TIMEOUT = 120
 CHECK_TIMEOUT = 5
 
@@ -85,7 +85,7 @@ async def check() -> bool:
     return up
 
 
-async def watch_loop(on_change) -> None:
+async def watch_loop(on_change, on_up=None) -> None:
     # the last announced mode is kept in kv, so a restart does not tell HR the same news again
     while True:
         try:
@@ -96,6 +96,9 @@ async def watch_loop(on_change) -> None:
                 db.kv_set("llm_up", mode)
                 if before is not None:
                     await on_change(up)
+            if up and on_up:
+                # an embedding call can time out while the model is up, so the gaps are retried on every check
+                await on_up()
         except Exception:
             log.exception("llm watch step failed")
         await asyncio.sleep(CHECK_EVERY)

@@ -344,6 +344,8 @@ async def embed_missing() -> int:
             (EMBED_BATCH,),
         )
         if not rows:
+            if done:
+                log.info("%d chunks embedded", done)
             return done
         try:
             vectors = await llm.embed([f"{row['title']}\n{row['text']}" for row in rows])

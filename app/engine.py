@@ -1,11 +1,10 @@
 import asyncio
-import importlib
 import json
 import logging
 import math
 from datetime import date, datetime, timedelta, timezone
 
-from app import db, max_api, messaging
+from app import db, hr, max_api, messaging
 from app.config import cfg
 from app.scenario import (
     SPECIAL_WHEN, START, ScenarioError, Step, is_bad_answer, load_holidays, load_scenario, render_text,
@@ -18,9 +17,10 @@ TICK_SECONDS = 20
 REMIND_AFTER = timedelta(hours=24)
 SKIP_AFTER = timedelta(hours=48)
 LATE_LIMIT = timedelta(hours=24)  # a step this late at the moment of linking is not sent at all
+SEND_TRIES = 3  # refusals from MAX in a row before a step is given up, e.g. the newcomer blocked the bot
 
 SURVEY = ("опрос", "шкала", "текст")
-# a «вопрос» only offers optional branches (D01): its buttons stay, but the next steps do not wait for it
+# a «вопрос» only offers optional branches: its buttons stay, but the next steps do not wait for it
 BLOCKING = ("обращение",) + SURVEY
 REMINDER = "напоминание"
 ACK_TEXT = "Принято"
@@ -101,6 +101,7 @@ PHRASES = {
 _steps: list[Step] = []
 _holidays: set[date] = set()
 _locks: dict[int, asyncio.Lock] = {}
+_refusals: dict[tuple[int, str], int] = {}
 
 
 def utc_now() -> datetime:
@@ -140,9 +141,6 @@ async def say(employee, key: str, buttons=None) -> None:
     await messaging.send_to_employee(employee, phrase(employee, key), buttons=buttons)
 
 
-# --- linking
-
-
 async def link_employee(max_user: dict, code: str) -> str:
     user_id = max_user.get("user_id")
     employee = db.query_one("SELECT * FROM employees WHERE invite_code = ?", (code.strip(),))
@@ -162,9 +160,6 @@ async def link_employee(max_user: dict, code: str) -> str:
         log.info("employee %s linked", employee["id"])
         await _advance(employee["id"])
     return "ok"
-
-
-# --- scheduler
 
 
 async def scheduler_loop() -> None:
@@ -245,17 +240,37 @@ async def _send_due(employee, now: datetime) -> int:
 
     sent = 0
     for _, step in due:
-        await _send_step(employee, step)
+        try:
+            await _send_step(employee, step)
+        except max_api.MaxError as e:
+            await _send_failed(employee, step, e)
+            break
+        _refusals.pop((employee["id"], step.id), None)
         sent += 1
         if step.kind in BLOCKING:
             break
     return sent
 
 
+async def _send_failed(employee, step: Step, error: max_api.MaxError) -> None:
+    key = (employee["id"], step.id)
+    # 5xx and 429 mean MAX is busy, not that it refuses this newcomer, so the step just waits for the next tick
+    if error.status < 500 and error.status != 429:
+        _refusals[key] = _refusals.get(key, 0) + 1
+    if _refusals.get(key, 0) < SEND_TRIES:
+        log.warning("employee %s: step %s not sent, will try again: %s", employee["id"], step.id, error)
+        return
+    del _refusals[key]
+    _mark(employee["id"], step.id, "skipped")
+    log.warning("employee %s: step %s skipped, MAX refused it %s times: %s", employee["id"], step.id, SEND_TRIES,
+                error)
+    await _check_survey(employee, step)
+
+
 async def _send_step(employee, step: Step) -> None:
     text = render_text(step, employee["address"], employee["first_name"])
     if not db.query_one("SELECT 1 FROM sent_steps WHERE employee_id = ? AND status != 'skipped'", (employee["id"],)):
-        # spec 4.9: the very first message tells what we keep and how to delete it
+        # the very first message tells what we keep and how to delete it
         text += "\n\n" + phrase(employee, "privacy")
     await messaging.send_to_employee(employee, text, buttons=_buttons(step), image=step.image or None)
     _mark(employee["id"], step.id, "sent")
@@ -288,9 +303,6 @@ async def send_special(employee, when: str, extra: str = "", buttons=None) -> bo
         text += "\n\n" + extra
     await messaging.send_to_employee(employee, text, buttons=buttons, image=step.image or None)
     return True
-
-
-# --- buttons
 
 
 async def on_callback(employee, payload: str, callback_id: str) -> None:
@@ -422,27 +434,11 @@ async def _check_survey(employee, step: Step) -> None:
         return  # a comment or a text answer is still on its way
     if not any(statuses[step_id] == "answered" for step_id in ids):
         return
-    await _survey_finished(employee, ids)
-
-
-async def _survey_finished(employee, step_ids: list[str]) -> None:
-    # hr.py comes with the escalation ticket; without it the summary is simply not sent
     try:
-        hr = importlib.import_module("app.hr")
-    except ModuleNotFoundError as e:
-        if e.name != "app.hr":
-            raise
-        return
-    survey_finished = getattr(hr, "survey_finished", None)
-    if survey_finished is None:
-        return
-    try:
-        await survey_finished(employee, step_ids)
+        await hr.survey_finished(employee, ids)
     except Exception:
+        # the answers are saved; a summary that did not reach HR must not stop the scenario
         log.exception("employee %s: survey summary failed", employee["id"])
-
-
-# --- demo and deletion
 
 
 async def demo_next(employee_id: int) -> str | None:
@@ -532,9 +528,6 @@ def _buttons(step: Step) -> list[list[dict]] | None:
     else:
         rows = [[b] for b in answers]
     return (rows + links) or None
-
-
-# --- state
 
 
 def _lock(employee_id: int) -> asyncio.Lock:

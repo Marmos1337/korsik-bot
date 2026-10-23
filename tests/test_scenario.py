@@ -10,6 +10,7 @@ from app.scenario import (
     Button, ScenarioError, Step, is_bad_answer, load_holidays, load_scenario, render_text, scale_buttons,
     step_due_at, tags_match, validate_scenario,
 )
+from tools.build_scenario import no_dashes
 
 UTC = timezone.utc
 NO_HOLIDAYS: set[date] = set()
@@ -24,9 +25,6 @@ def make_step(**kw) -> Step:
 
 def due(when, start, tz="Europe/Moscow", holidays=NO_HOLIDAYS, **kw):
     return step_due_at(make_step(when=when), start, tz, holidays, None, **kw)
-
-
-# --- timing
 
 
 def test_working_day_skips_weekend_and_holidays_in_employee_timezone():
@@ -93,9 +91,6 @@ def test_button_step_has_no_time():
     assert step_due_at(step, date(2026, 11, 6), "Europe/Moscow", NO_HOLIDAYS, datetime.now(UTC)) is None
 
 
-# --- tags
-
-
 def test_tags_match():
     assert tags_match([], [])
     assert tags_match([], ["GTP"])
@@ -106,9 +101,6 @@ def test_tags_match():
     assert tags_match(["-GTP"], [])
     assert not tags_match(["-GTP"], ["gtp", "офис"])
     assert not tags_match(["GrPP", "-офис"], ["GrPP", "Офис"])
-
-
-# --- texts
 
 
 def test_render_text_picks_register_and_fills_name():
@@ -123,7 +115,7 @@ def test_render_text_without_vy_version_uses_ty():
 
 
 def test_render_text_before_choice_is_vy():
-    # spec 4.4: until the employee picks, the bot talks on "вы"
+    # until the employee picks, the bot talks on "вы"
     step = make_step(text_ty="Как ты?", text_vy="Как вы?")
     assert render_text(step, None, "Аня") == "Как вы?"
 
@@ -131,9 +123,6 @@ def test_render_text_before_choice_is_vy():
 def test_render_text_drops_hr_notes():
     step = make_step(text_ty="О компании.\n\n[HR: добавить факты]\n\nЗдесь ценят инициативу.\n[HR: число площадок]")
     assert render_text(step, "ty", "Аня") == "О компании.\n\nЗдесь ценят инициативу."
-
-
-# --- answers
 
 
 def test_bad_answer_by_score():
@@ -160,9 +149,6 @@ def test_scale_buttons():
     assert [[b.text for b in row] for row in rows] == [["1", "2", "3", "4", "5"], ["6", "7", "8", "9", "10"]]
 
 
-# --- holidays
-
-
 def test_load_holidays(tmp_path):
     path = tmp_path / "holidays.txt"
     path.write_text("# сверить с производственным календарём\n2026-01-01\n\n2026-05-09  # День Победы\n",
@@ -173,8 +159,6 @@ def test_load_holidays(tmp_path):
 def test_missing_holidays_file_is_empty(tmp_path):
     assert load_holidays(tmp_path / "nope.txt") == set()
 
-
-# --- scenario file
 
 HEADERS = ["Шаг", "Когда", "После", "Теги", "Тип", "Текст на «ты»", "Текст на «вы»", "Кнопки", "Плохой ответ",
            "Картинка", "Комментарий"]
@@ -282,6 +266,21 @@ def test_real_scenario_promises_only_what_the_bot_does():
     texts = [text for s in load_scenario(REAL_SCENARIO) for text in (s.text_ty, s.text_vy)]
     for promise in ("/food", "/hr", "перед публикацией", "Вот он.", "пришли фото", "пришлите фото"):
         assert not [t for t in texts if promise in t], promise
+
+
+def test_real_scenario_has_no_em_dashes():
+    workbook = openpyxl.load_workbook(REAL_SCENARIO)
+    cells = [f"{sheet.title}!{cell.coordinate}" for sheet in workbook for row in sheet.iter_rows() for cell in row
+             if isinstance(cell.value, str) and "\u2014" in cell.value]
+    assert cells == []
+
+
+def test_rebuilt_texts_lose_em_dashes_without_losing_words():
+    dash = "\u2014"
+    assert no_dashes(f"Как нам удобнее общаться {dash} на «ты» или на «вы»?") == (
+        "Как нам удобнее общаться: на «ты» или на «вы»?")
+    assert no_dashes(f"Напиши, чего именно нет, {dash} передам рекрутеру.") == "Напиши, чего именно нет, передам рекрутеру."
+    assert no_dashes(f"1 из 9. Понятны ли тебе задачи? {dash} Да / Нет") == "1 из 9. Понятны ли тебе задачи? - Да / Нет"
 
 
 def test_real_holidays_file():

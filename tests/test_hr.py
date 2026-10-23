@@ -343,7 +343,7 @@ def test_second_answer_to_an_answered_question_is_not_sent(outbox, monkeypatch):
     assert [m["text"] for m in to(outbox, user_id=701)] == ["На этот вопрос уже ответили (Ольга)."]
     assert db.query_one("SELECT answer FROM escalations WHERE id = ?", (escalation_id,))[0] == "Пропуск выдаёт охрана."
     with pytest.raises(ValueError, match="Ольга"):
-        run(hr.deliver_answer(escalation_id, "Ответ из кабинета", "HR"))
+        run(hr.deliver_answer(escalation_id, "Ответ из кабинета", "HR", employee["id"]))
 
 
 def test_waiting_for_the_answer_ends_after_a_day(outbox, monkeypatch):
@@ -388,3 +388,41 @@ def test_a_reused_question_id_starts_clean(outbox, monkeypatch):
     run(hr.handle_recruiter_update(olga, callback(f"esc:kb:{second}:yes")))
     chunks = [row["text"] for row in db.query("SELECT text FROM chunks")]
     assert "Вопрос: Где парковка?\nОтвет: Парковка у входа." in chunks
+
+
+def test_answer_to_a_deleted_question_does_not_reach_the_next_owner_of_its_number(outbox):
+    olga = add_recruiter()
+    anna = add_employee(olga["id"])
+    first = run(hr.escalate(anna, "Где взять пропуск?", "no_answer"))
+    run(hr.handle_recruiter_update(olga, callback(f"esc:reply:{first}")))
+    engine.delete_employee_data(anna["id"])
+    ivan = add_employee(olga["id"], name="Петров Иван", max_user_id=501, code="ivan")
+    second = run(hr.escalate(ivan, "Где парковка?", "no_answer"))
+    assert second == first
+    outbox.clear()
+
+    run(hr.handle_recruiter_update(olga, text_message("Пропуск выдаёт охрана.")))
+
+    assert to(outbox, user_id=501) == []
+    assert [m["text"] for m in outbox] == [hr.QUESTION_GONE]
+    assert db.query_one("SELECT status FROM escalations WHERE id = ?", (second,))["status"] == "open"
+
+
+def test_recruiter_hears_when_the_answer_did_not_go_out(outbox, monkeypatch):
+    olga = add_recruiter()
+    employee = add_employee(olga["id"])
+    escalation_id = run(hr.escalate(employee, "Где взять пропуск?", "no_answer"))
+    run(hr.handle_recruiter_update(olga, callback(f"esc:reply:{escalation_id}")))
+    outbox.clear()
+    deliver = max_api.send_message
+
+    async def newcomer_unreachable(text, user_id=None, **kwargs):
+        if user_id == 500:
+            raise RuntimeError("connection reset")
+        return await deliver(text, user_id=user_id, **kwargs)
+
+    monkeypatch.setattr(max_api, "send_message", newcomer_unreachable)
+    run(hr.handle_recruiter_update(olga, text_message("Пропуск выдаёт охрана.")))
+
+    assert [m["text"] for m in outbox] == [hr.NOT_DELIVERED]
+    assert db.query_one("SELECT status FROM escalations WHERE id = ?", (escalation_id,))["status"] == "open"
