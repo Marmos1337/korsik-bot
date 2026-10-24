@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon %}
+{% block title %}Новый сотрудник{% endblock %}
+{% block content %}
+<a class="back" href="/">{{ icon("back", "sm") }}Новички</a>
+<div class="page-head"><div><h1 class="title">Новый сотрудник</h1><p class="lead">После сохранения появятся личная ссылка и QR-код для оффера.</p></div></div>
+
+<form method="post" action="/employees" class="card form">
+  <label class="field full"><span>ФИО</span><input name="full_name" required maxlength="200" autocomplete="off" placeholder="Фамилия Имя Отчество"></label>
+  <label class="field"><span>Имя для обращения</span><input name="first_name" maxlength="200"><small>Если пусто, берём второе слово ФИО</small></label>
+  <label class="field"><span>Дата выхода</span><input type="date" name="start_date" required></label>
+  {% if workplaces %}
+  <label class="field"><span>Место работы</span>
+    <select name="workplace_id" required>
+      <option value="">Выбери место работы</option>
+      {% for w in workplaces %}<option value="{{ w.id }}">{{ w.name }}, {{ w|schedule }}</option>{% endfor %}
+    </select>
+    <small>Теги, часовой пояс и рабочие часы подставятся из места работы</small>
+  </label>
+  {% endif %}
+  <label class="field"><span>Рекрутер</span>
+    <select name="recruiter_id">
+      <option value="">{% if workplaces %}Рекрутер этого места работы{% else %}Не назначен{% endif %}</option>
+      {% for r in recruiters %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field"><span>Часовой пояс</span>
+    <select name="timezone">
+      {% if workplaces %}<option value="workplace" selected>Как у места работы</option>{% endif %}
+      {% for name, label in zones.items() %}<option value="{{ name }}"{% if name == default_zone and not workplaces %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field"><span>{% if workplaces %}Дополнительные теги{% else %}Теги{% endif %}</span><input name="tags" maxlength="200" placeholder="через запятую">
+    {% if tags %}<small>Уже есть: {{ tags|join(", ") }}</small>{% endif %}</label>
+  {% if not workplaces %}<div class="notice full">Мест работы пока нет. <a href="/workplaces">Заведи их</a>, тогда теги, пояс и рабочие часы будут подставляться сами.</div>{% endif %}
+  <div class="actions full"><button class="btn">Сохранить</button><a class="btn secondary" href="/">Отмена</a></div>
+</form>
+{% endblock %}

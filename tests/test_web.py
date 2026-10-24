@@ -153,7 +153,7 @@ def test_new_employee_gets_personal_link_and_qr(admin):
     recruiter_id = add_recruiter()
     response = admin.post("/employees", data={**NEW_EMPLOYEE, "recruiter_id": str(recruiter_id)})
     row = db.query_one("SELECT * FROM employees")
-    assert response.status_code == 303 and response.headers["location"] == f"/employees/{row['id']}"
+    assert response.status_code == 303 and response.headers["location"] == f"/employees/{row['id']}?new=1"
     assert (row["full_name"], row["first_name"], row["start_date"]) == ("Смирнова Анна Ивановна", "Анна", "2026-11-02")
     assert (row["timezone"], row["tags"], row["recruiter_id"]) == ("Asia/Novosibirsk", "GrPP, Luzhniki", recruiter_id)
     assert row["max_user_id"] is None
@@ -191,9 +191,9 @@ def test_no_link_until_the_bot_name_is_known(admin, monkeypatch):
 ])
 def test_bad_employee_form_is_explained_not_saved(admin, field, value):
     response = admin.post("/employees", data={**NEW_EMPLOYEE, field: value})
-    assert response.status_code == 303 and response.headers["location"] == "/"
+    assert response.status_code == 303 and response.headers["location"] == "/employees/new"
     assert db.query("SELECT id FROM employees") == []
-    assert "flash bad" in admin.get("/").text
+    assert "flash bad" in admin.get("/employees/new").text
 
 
 def test_main_page_lists_employees_and_offers_russian_time_zones(admin):
@@ -201,6 +201,7 @@ def test_main_page_lists_employees_and_offers_russian_time_zones(admin):
     add_employee("Иванов Пётр", recruiter_id=recruiter_id, tags="GTP", code="petr")
     page = admin.get("/").text
     assert "Иванов Пётр" in page and "Ольга Петрова" in page and "GTP" in page
+    page = admin.get("/employees/new").text
     for zone in ("Europe/Kaliningrad", "Europe/Moscow", "Asia/Novosibirsk", "Asia/Kamchatka"):
         assert f'value="{zone}"' in page
     assert "Калининград" in page and "Камчатка" in page
@@ -223,10 +224,10 @@ def test_recruiter_gets_a_link_that_the_bot_accepts(admin):
     assert admin.post("/recruiters", data={"name": "Ольга Петрова", **ALWAYS}).status_code == 303
     row = db.query_one("SELECT * FROM recruiters")
     assert row["name"] == "Ольга Петрова" and row["max_user_id"] is None
-    assert f"https://max.ru/korsik_test_bot?start=hr_{row['invite_code']}" in admin.get("/recruiters").text
+    assert f"https://max.ru/korsik_test_bot?start=hr_{row['invite_code']}" in admin.get(f"/recruiters/{row['id']}").text
     # the bot cuts «hr_» off the start payload and looks the rest up
     assert hr.link_recruiter(777, row["invite_code"])["name"] == "Ольга Петрова"
-    assert "привязан" in admin.get("/recruiters").text
+    assert "МАКС привязан" in admin.get(f"/recruiters/{row['id']}").text
     assert admin.get(f"/recruiters/{row['id']}/qr.png").headers["content-type"] == "image/png"
 
 
@@ -247,10 +248,10 @@ def test_card_shows_steps_dialogue_answers_and_flags(admin, scenario_file):
     add_pulse(employee_id, "Всё хорошо", 0)
 
     card = admin.get(f"/employees/{employee_id}").text
-    assert "С первым днём, {имя}!" in card and "есть ответ" in card and "отправлен" in card
+    assert "С первым днём, Анна!" in card and "есть ответ" in card and "отправлен" in card
     assert "Добрый день, Анна!" in card and "Столовая на втором этаже" in card
-    assert "Скорее да" in card and ">7<" in card
-    assert "Хочу уйти" in card and "красный флаг" in card and "думает об уходе" in card
+    assert "Скорее да" in card and "7 из 10" in card
+    assert "Хочу уйти" in card and "Красный флаг" in card and "думает об уходе" in card
     assert "Всё хорошо" not in card
 
 
@@ -413,8 +414,8 @@ def test_open_question_is_visible_even_without_a_recruiter(admin):
     add_question(employee_id)
     page = admin.get("/questions").text
     assert "Где взять пропуск?" in page and "Иванов Пётр" in page and "GTP" in page
-    assert "Здравствуйте!" in page and "рекрутер не назначен" in page
-    assert 'Вопросы<span class="count">1</span>' in page
+    assert "Здравствуйте!" in page and "Рекрутер не назначен" in page
+    assert '<span class="badge bad">1</span>' in page
 
 
 def answer_form(admin, question_id):

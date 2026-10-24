@@ -1,107 +1,116 @@
-{% if message %}<p class="flash{% if bad %} bad{% endif %}">{{ message }}</p>{% endif %}
+{% macro chip(status) %}<span class="chip {{ status[1] }}">{{ status[0] }}</span>{% endmacro %}
+{% if message %}<div class="notice {% if bad %}bad{% else %}ok{% endif %}">{{ message }}</div>{% endif %}
 
 {% if recruiter %}
-<h2>Вопросы новичков</h2>
-{% for place, items in blocks.items() %}
-<h3>{{ place }}</h3>
-{% for q, state in items %}
-<form method="post" action="/app/answer/{{ q.id }}" class="block{% if state.overdue %} overdue{% endif %}">
-  <p><b>{{ q.full_name }}</b>, {{ q.created_at|local }}</p>
-  <p>{% if state.overdue %}<span class="chip bad">просрочен</span>{% else %}<span class="chip warn">ждёт ответа</span>{% endif %} {{ state.waited }}</p>
-  <p class="text">{{ q.question }}</p>
-  <input type="hidden" name="employee_id" value="{{ q.employee_id }}">
-  <input type="hidden" name="asked_at" value="{{ q.created_at }}">
-  <textarea name="answer" required rows="3" maxlength="3000">{% if typed[0] == q.id %}{{ typed[1] }}{% endif %}</textarea>
-  <button>Отправить ответ</button>
-</form>
-{% endfor %}
-{% else %}
-<p class="muted">Открытых вопросов нет.</p>
-{% endfor %}
-
-<h2>Мои новички</h2>
-{% for n in newcomers %}
-{% set e = n.employee %}
-<details>
-  <summary>{{ e.full_name }}{% if n.workplace %} ({{ n.workplace }}){% endif %}: {{ n.stage }}{% if n.flags %}, есть флаги{% endif %}</summary>
-  {% if workplaces %}
-  <form method="post" action="/app/move/{{ e.id }}">
-    <select name="workplace_id">
-      <option value="">место работы не указано</option>
-      {% for w in workplaces %}<option value="{{ w.id }}"{% if w.id == e.workplace_id %} selected{% endif %}>{{ w.name }}</option>{% endfor %}
-    </select>
-    <button>Сменить место работы</button>
+<section class="stack">
+  <h2 class="section-title">Вопросы новичков</h2>
+  {% for place, items in blocks.items() %}
+  <p class="small muted">{{ place }}</p>
+  {% for q, state in items %}
+  <form method="post" action="/app/answer/{{ q.id }}" class="card stack{% if state.overdue %} late{% endif %}">
+    <div class="person"><span class="avatar sm">{{ q.full_name|initials }}</span><div class="grow"><div class="name">{{ q.full_name }}</div><div class="meta">{{ q.created_at|local }}</div></div></div>
+    <p class="text"><b>{{ q.question }}</b></p>
+    <div class="chips">{% if state.overdue %}<span class="chip bad">ждёт {{ state.waited }}</span>{% else %}<span class="chip warn">ждёт {{ state.waited }}</span>{% endif %}</div>
+    <input type="hidden" name="employee_id" value="{{ q.employee_id }}">
+    <input type="hidden" name="asked_at" value="{{ q.created_at }}">
+    <label class="field"><span>Ответ</span><textarea name="answer" required rows="3" maxlength="3000">{% if typed[0] == q.id %}{{ typed[1] }}{% endif %}</textarea></label>
+    <button class="btn">Ответить</button>
   </form>
-  {% endif %}
-  <div class="table"><table>
-    <tr><th>Выход</th><td>{{ e.start_date }}</td></tr>
-    <tr><th>Часовой пояс</th><td>{{ e.timezone }}</td></tr>
-    <tr><th>Теги</th><td>{{ e.tags or "нет" }}</td></tr>
-    <tr><th>Обращение</th><td>{% if e.address == "ty" %}на ты{% elif e.address == "vy" %}на вы{% else %}ещё не выбрано{% endif %}</td></tr>
-    <tr><th>Шагов отправлено</th><td>{{ e.steps_sent }}</td></tr>
-  </table></div>
-  {% if n.flags %}
-  <p>Последние флаги:</p>
-  <ul>
-    {% for f in n.flags %}
-    <li>{{ f.created_at|local }}, {% if f.risk == 2 %}красный флаг{% else %}есть трудность{% endif %}, {{ f.topic }}: <span class="text">{{ f.text }}</span></li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% if n.answers %}
-  <p>Последние ответы на опросы:</p>
-  <ul>
-    {% for a in n.answers %}
-    <li>{{ a.question|truncate(80) }}: <span class="text">{{ a.answer }}</span></li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-</details>
-{% else %}
-<p class="muted">За вами пока не закреплён ни один новичок.</p>
-{% endfor %}
+  {% endfor %}
+  {% else %}
+  <div class="card empty">Открытых вопросов нет.</div>
+  {% endfor %}
+</section>
 
-<h2>Сводка</h2>
-<p class="text">{{ digest }}</p>
+<section class="stack">
+  <h2 class="section-title">Мои новички</h2>
+  {% for n in newcomers %}{% set e = n.employee %}
+  <details class="card">
+    <summary style="list-style:none; cursor:pointer">
+      <div class="person"><span class="avatar">{{ e.full_name|initials }}</span><div class="grow"><div class="name">{{ e.full_name }}</div><div class="meta">{{ n.workplace or "место не указано" }} · {{ n.card.when }}</div></div></div>
+      <div class="chips" style="margin-top:12px">{{ chip(n.card.status) }}</div>
+    </summary>
+    <div class="stack" style="margin-top:16px">
+      {% for f in n.flags %}
+      <div class="notice {% if f.risk == 2 %}bad{% else %}warn{% endif %}"><b>{% if f.risk == 2 %}Красный флаг{% else %}Нужно внимание{% endif %}: {{ f.topic }}</b><span class="caption">{{ f.created_at|local }}</span><p class="quote text">«{{ f.text }}»</p></div>
+      {% endfor %}
+      <dl class="kv">
+        <dt>Выход</dt><dd>{{ e.start_date }}</dd>
+        <dt>Обращение</dt><dd>{% if e.address == "ty" %}на ты{% elif e.address == "vy" %}на вы{% else %}ещё не выбрано{% endif %}</dd>
+        <dt>Шагов отправлено</dt><dd>{{ e.steps_sent }}</dd>
+      </dl>
+      {% if n.answers %}
+      <div class="stack" style="gap:8px">{% for a in n.answers %}<div><p class="caption">{{ a.question|truncate(90) }}</p><p class="small">{{ a.answer }}</p></div>{% endfor %}</div>
+      {% endif %}
+      {% if workplaces %}
+      <form method="post" action="/app/move/{{ e.id }}" class="stack">
+        <label class="field"><span>Место работы</span>
+          <select name="workplace_id"><option value="">Не указано</option>{% for w in workplaces %}<option value="{{ w.id }}"{% if w.id == e.workplace_id %} selected{% endif %}>{{ w.name }}</option>{% endfor %}</select></label>
+        <button class="btn secondary">Сменить место работы</button>
+      </form>
+      {% endif %}
+    </div>
+  </details>
+  {% else %}
+  <div class="card empty">За тобой пока не закреплён ни один новичок.</div>
+  {% endfor %}
+</section>
 
-<h2>Мой график</h2>
-<p>Сейчас: {{ my_schedule }}. Напоминания о вопросах без ответа приходят только в это время.</p>
-<form method="post" action="/app/profile" class="block">
-  <select name="timezone">
-    {% for name, label in zones.items() %}<option value="{{ name }}"{% if name == recruiter.timezone %} selected{% endif %}>{{ label }}</option>{% endfor %}
-  </select>
-  <p class="days">{% for name in day_names %}<label class="inline"><input type="checkbox" name="days" value="{{ loop.index }}"{% if loop.index in my_days %} checked{% endif %}> {{ name }}</label> {% endfor %}</p>
-  <p>С <input name="work_start" value="{{ recruiter.work_start }}" size="5"> до <input name="work_end" value="{{ recruiter.work_end }}" size="5"></p>
-  <button>Сохранить график</button>
-</form>
+<section class="stack">
+  <h2 class="section-title">Мой график</h2>
+  <form method="post" action="/app/profile" class="card stack">
+    <p class="small muted">Сейчас {{ my_schedule }}. Напоминания о вопросах приходят только в это время.</p>
+    <label class="field"><span>Часовой пояс</span>
+      <select name="timezone">{% for name, label in zones.items() %}<option value="{{ name }}"{% if name == recruiter.timezone %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <div class="field"><span>Рабочие дни</span>
+      <div class="toggles">{% for name in day_names %}<label class="toggle"><input type="checkbox" name="days" value="{{ loop.index }}"{% if loop.index in my_days %} checked{% endif %}><span>{{ name }}</span></label>{% endfor %}</div></div>
+    <div class="field"><span>Рабочее время</span>
+      <div class="hours"><input name="work_start" value="{{ recruiter.work_start }}" aria-label="Начало"> <span class="muted">до</span> <input name="work_end" value="{{ recruiter.work_end }}" aria-label="Конец"></div></div>
+    <button class="btn">Сохранить график</button>
+  </form>
+</section>
+
+<section class="stack">
+  <h2 class="section-title">Сводка</h2>
+  <div class="card"><p class="small text">{{ digest }}</p></div>
+</section>
 {% endif %}
 
 {% if employee %}
-<h2>{% if ty %}Твой{% else %}Ваш{% endif %} прогресс</h2>
-<div class="card"><p><b>{{ stage|capitalize }}</b></p>
-<div class="progress" role="progressbar" aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100"><span style="width: {{ progress }}%"></span></div>
-<p class="muted">Пройдено шагов: {{ steps_done }}</p></div>
-{% if employee.waiting %}
-<p>Бот ждёт {% if ty %}твоего{% else %}вашего{% endif %} ответа в чате.</p>
-{% elif next_step %}
-<p>Следующее сообщение от бота: {{ next_step[1] }} по {% if ty %}твоему{% else %}вашему{% endif %} времени.</p>
-<p class="text muted">{{ next_step[0]|truncate(120) }}</p>
-{% else %}
-<p>Новых сообщений по плану пока нет.</p>
-{% endif %}
+<section class="stack">
+  <h2 class="section-title">{% if ty %}Твой{% else %}Ваш{% endif %} прогресс</h2>
+  <div class="card stack">
+    <p><b>{{ stage|capitalize }}</b></p>
+    <div class="progress" role="progressbar" aria-label="Пройдено по плану" aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100"><span style="width: {{ progress }}%"></span></div>
+    <p class="small muted">Пройдено шагов: {{ steps_done }} · {{ progress }}% плана</p>
+  </div>
+  {% if employee.waiting %}
+  <div class="notice warn">Бот ждёт {% if ty %}твоего{% else %}вашего{% endif %} ответа в чате.</div>
+  {% elif next_step %}
+  <div class="card stack" style="gap:6px">
+    <p class="caption">Следующее сообщение: {{ next_step[1] }} по {% if ty %}твоему{% else %}вашему{% endif %} времени</p>
+    <p class="small text">{{ next_step[0]|truncate(140) }}</p>
+  </div>
+  {% else %}
+  <div class="card"><p class="small muted">Новых сообщений по плану пока нет.</p></div>
+  {% endif %}
+</section>
 
-<h2>{% if ty %}Твои{% else %}Ваши{% endif %} вопросы к HR</h2>
-{% for q in my_questions %}
-<p>
-  <span class="muted">{{ q.created_at|local(employee.timezone) }}</span><br>
-  <b class="text">{{ q.question }}</b><br>
-  {% if q.status == "answered" and q.delivered_at %}Ответ: <span class="text">{{ q.answer }}</span>{% else %}<span class="muted">ждёт ответа</span>{% endif %}
-</p>
-{% else %}
-<p class="muted">Вопросов к HR пока не было. Если бот не найдёт ответ в документах, вопрос появится здесь.</p>
-{% endfor %}
+<section class="stack">
+  <h2 class="section-title">{% if ty %}Твои{% else %}Ваши{% endif %} вопросы к HR</h2>
+  {% for q in my_questions %}
+  <div class="card stack" style="gap:6px">
+    <div class="row between"><span class="caption">{{ q.created_at|local(employee.timezone) }}</span>
+      {% if q.status == "answered" and q.delivered_at %}<span class="chip ok">есть ответ</span>{% else %}<span class="chip warn">ждёт ответа</span>{% endif %}</div>
+    <p class="text"><b>{{ q.question }}</b></p>
+    {% if q.status == "answered" and q.delivered_at %}<p class="small text">Ответ: {{ q.answer }}</p>{% endif %}
+  </div>
+  {% else %}
+  <div class="card empty">Вопросов к HR пока не было. Если бот не найдёт ответ в документах, вопрос появится здесь.</div>
+  {% endfor %}
+</section>
 {% endif %}
 
 {% if not recruiter and not employee %}
-<p>Это приложение бота Корсик для новичков и рекрутеров. Откройте бота по личной ссылке от рекрутера, после этого здесь появятся ваши данные.</p>
+<div class="card empty"><img src="/static/avatar.png" alt="" width="96" height="96"><p>Это приложение бота Корсик для новичков и рекрутеров. Открой бота по личной ссылке от рекрутера, после этого здесь появятся твои данные.</p></div>
 {% endif %}

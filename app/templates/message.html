@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<p>{{ text }}</p>
-<p><a href="/">На главную</a></p>
+<div class="card empty"><p>{{ text }}</p><p style="margin-top:16px"><a class="btn secondary" href="/">На главную</a></p></div>
+{% endblock %}
+{% block public %}
+<div class="login"><div class="card"><p>{{ text }}</p><a class="btn secondary" href="/login">Ко входу</a></div></div>
 {% endblock %}

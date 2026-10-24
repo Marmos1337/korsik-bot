@@ -1,23 +1,26 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon %}
 {% block title %}Сценарий{% endblock %}
 {% block content %}
-<h1>Сценарий</h1>
+<div class="page-head">
+  <div><h1 class="title">Сценарий</h1><p class="lead">Все сообщения бота за три месяца. HR правит их в Excel, без программиста.</p></div>
+  <a class="btn secondary" href="/scenario/download">{{ icon("download", "sm") }}Скачать файл</a>
+</div>
 {% if problems %}
-<p class="flash bad">Рабочий файл сценария не проходит проверку. Пока бот работает с тем сценарием, который загрузил раньше, после перезапуска без исправления сценария у него не будет. Что нужно исправить:</p>
-<ul>{% for problem in problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+<div class="notice bad"><b>Рабочий файл не проходит проверку</b>Бот пока работает со сценарием, загруженным раньше. Что исправить:<ul>{% for problem in problems %}<li>{{ problem }}</li>{% endfor %}</ul></div>
 {% else %}
-<p>Рабочий файл в порядке. Шагов: {{ steps }}.</p>
+<div class="notice ok"><b>Рабочий файл в порядке</b>Шагов: {{ steps }}. Обязательные шаги получит даже новичок, который открыл ссылку поздно.</div>
 {% endif %}
-<p><a href="/scenario/download">Скачать рабочий файл</a>, поправить в Excel и загрузить ниже.</p>
 
-<h2>Загрузить новый сценарий</h2>
-{% if upload_problems %}
-<p class="flash bad">Файл не принят, рабочий сценарий остался прежним. Что нужно исправить:</p>
-<ul>{% for problem in upload_problems %}<li>{{ problem }}</li>{% endfor %}</ul>
-{% endif %}
-<form method="post" action="/scenario/upload" enctype="multipart/form-data" class="block">
-  <label>Файл .xlsx с листом «Сценарий» <input type="file" name="file" required accept=".xlsx"></label>
-  <button>Проверить и заменить</button>
-</form>
-<p class="muted">Сначала файл проверяется. Если ошибок нет, он заменяет рабочий, а предыдущая версия остаётся в data/scenario-previous.xlsx. Если есть, ничего не меняется. Шаги, которые новичок уже получил, повторно не уходят: учёт идёт по номеру шага, поэтому номера у старых шагов лучше не менять.</p>
+<section class="section">
+  {% if upload_problems %}
+  <div class="notice bad flash"><b>Файл не принят, рабочий сценарий остался прежним</b><ul>{% for problem in upload_problems %}<li>{{ problem }}</li>{% endfor %}</ul></div>
+  {% endif %}
+  <form method="post" action="/scenario/upload" enctype="multipart/form-data" class="card form" style="grid-template-columns:1fr; max-width:640px">
+    <h2 class="section-title">Загрузить новый сценарий</h2>
+    <label class="field"><span>Файл .xlsx с листом «Сценарий»</span><input type="file" name="file" required accept=".xlsx" style="padding-top:14px"></label>
+    <button class="btn">Проверить и заменить</button>
+    <p class="caption">Сначала файл проверяется. Без ошибок он заменяет рабочий, прошлая версия остаётся в data/scenario-previous.xlsx. Шаги, которые новичок уже получил, повторно не уходят: учёт идёт по номеру шага.</p>
+  </form>
+</section>
 {% endblock %}

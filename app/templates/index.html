@@ -1,67 +1,40 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, status_chip, person %}
 {% block title %}Новички{% endblock %}
 {% block content %}
-<h1>Новички</h1>
-<p>
-  {% if model_up %}<span class="chip ok">Модель работает</span> Бот отвечает на вопросы по документам.
-  {% else %}<span class="chip warn">Модель недоступна</span> Сейчас упрощённый режим: бот отвечает цитатами из документов или передаёт вопрос рекрутеру. Сценарий и опросы работают как обычно.{% endif %}
-</p>
+<div class="page-head">
+  <div><h1 class="title">Новички</h1><p class="lead">Всего {{ total }}.{% if model_up %} Модель работает, бот отвечает по документам.{% else %} Сейчас упрощённый режим: модель недоступна.{% endif %}</p></div>
+  <a class="btn" href="/employees/new">{{ icon("plus", "sm") }}Добавить новичка</a>
+</div>
 
-{% if employees %}
-<div class="table"><table>
-  <tr><th>ФИО</th><th>Место работы</th><th>Выход</th><th>Часовой пояс</th><th>Теги</th><th>Рекрутер</th><th>В боте</th><th>Шагов</th><th>Вопросов</th><th>Красных флагов</th></tr>
-  {% for e in employees %}
-  <tr>
-    <td><a href="/employees/{{ e.id }}">{{ e.full_name }}</a></td>
-    <td>{{ e.workplace_name or "не указано" }}</td>
-    <td>{{ e.start_date }}</td>
-    <td>{{ e.timezone|zone }}</td>
-    <td>{{ e.tags }}</td>
-    <td>{{ e.recruiter_name or "не назначен" }}</td>
-    <td>{% if e.max_user_id %}<span class="chip ok">в боте</span>{% else %}<span class="chip warn">ссылка не открыта</span>{% endif %}</td>
-    <td>{{ e.steps_sent }}</td>
-    <td>{{ e.open_questions }}</td>
-    <td>{% if e.red_flags %}<span class="chip bad">{{ e.red_flags }}</span>{% else %}0{% endif %}</td>
-  </tr>
-  {% endfor %}
-</table></div>
-{% else %}
-<p class="muted">Новичков пока нет.</p>
-{% endif %}
-
-<h2>Добавить новичка</h2>
-<form method="post" action="/employees" class="block">
-  <label>ФИО <input name="full_name" required maxlength="200" size="40"></label>
-  <label>Имя для обращения <input name="first_name" maxlength="200"> <span class="muted">если пусто, берём второе слово ФИО</span></label>
-  <label>Дата выхода <input type="date" name="start_date" required></label>
+<form class="search" method="get" action="/" role="search">
+  <input class="input" type="search" name="q" value="{{ q }}" placeholder="Поиск по имени" aria-label="Поиск по имени">
   {% if workplaces %}
-  <label>Место работы
-    <select name="workplace_id" required>
-      <option value="">выберите</option>
-      {% for w in workplaces %}<option value="{{ w.id }}">{{ w.name }}{% if w.tags %} ({{ w.tags }}){% endif %}, {{ w|schedule }}</option>{% endfor %}
-    </select>
-    <span class="muted">теги, часовой пояс и рабочие часы возьмём из места работы</span>
-  </label>
-  {% else %}
-  <p class="muted">Мест работы пока нет: <a href="/workplaces">заведите их</a>, тогда теги, пояс и рабочие часы будут подставляться сами.</p>
+  <select class="input" name="workplace" aria-label="Место работы">
+    <option value="">Все места работы</option>
+    {% for w in workplaces %}<option value="{{ w.id }}"{% if workplace == w.id|string %} selected{% endif %}>{{ w.name }}</option>{% endfor %}
+  </select>
   {% endif %}
-  <label>Часовой пояс
-    <select name="timezone">
-      {% if workplaces %}<option value="workplace" selected>как у места работы</option>{% endif %}
-      {% for name, label in zones.items() %}
-      <option value="{{ name }}"{% if name == default_zone and not workplaces %} selected{% endif %}>{{ label }}, {{ name }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <label>{% if workplaces %}Дополнительные теги{% else %}Теги{% endif %} через запятую <input name="tags" maxlength="200" size="30">
-    {% if tags %}<span class="muted">уже есть в сценарии и документах: {{ tags|join(", ") }}</span>{% endif %}
-  </label>
-  <label>Рекрутер
-    <select name="recruiter_id">
-      <option value="">{% if workplaces %}рекрутер этого места работы{% else %}не назначен{% endif %}</option>
-      {% for r in recruiters %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
-    </select>
-  </label>
-  <button>Добавить</button>
+  <select class="input" name="status" aria-label="Статус">
+    <option value="">Любой статус</option>
+    {% for key, name in [("attention", "Нужно внимание"), ("flag", "Красный флаг"), ("progress", "В процессе"), ("before", "Ждёт выхода"), ("not_linked", "Ссылка не открыта"), ("done", "Адаптация пройдена")] %}<option value="{{ key }}"{% if picked == key %} selected{% endif %}>{{ name }}</option>{% endfor %}
+  </select>
+  <button class="btn secondary compact">Показать</button>
 </form>
+
+{% if cards %}
+<div class="grid">
+  {% for c in cards %}{% set e = c.employee %}
+  <a class="card ecard" href="/employees/{{ e.id }}">
+    {{ person(e.full_name, (e.workplace_name or "место не указано") ~ " · " ~ c.when) }}
+    <p class="small muted">{{ e.recruiter_name or "рекрутер не назначен" }}{% if e.tags %} · {{ e.tags }}{% endif %}</p>
+    <div class="chips">{{ status_chip(c.status) }}{% if e.open_questions %}<span class="chip plain">вопросов: {{ e.open_questions }}</span>{% endif %}</div>
+  </a>
+  {% endfor %}
+</div>
+{% elif total %}
+<div class="card empty">Никого не нашли. Попробуй другое имя или сбрось фильтры. <p style="margin-top:12px"><a href="/">Показать всех</a></p></div>
+{% else %}
+<div class="card empty"><img src="/static/avatar.png" alt="" width="96" height="96"><p>Новичков пока нет. Добавь первого, бот пришлёт ему приветствие по личной ссылке.</p><p style="margin-top:16px"><a class="btn" href="/employees/new">Добавить новичка</a></p></div>
+{% endif %}
 {% endblock %}

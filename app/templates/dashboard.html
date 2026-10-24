@@ -1,97 +1,83 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon %}
 {% block title %}Дашборд{% endblock %}
 {% block content %}
-<div class="hero">
-  <img src="/static/avatar.png" alt="" width="64" height="64">
-  <div><h1>Дашборд адаптации</h1><p>Новички, вопросы и настроение по местам работы и рекрутерам.</p></div>
-</div>
-<p>{% if model_up %}<span class="chip ok">Модель работает</span> Бот отвечает на вопросы по документам.{% else %}<span class="chip warn">Упрощённый режим</span> Модель недоступна. Сценарий и опросы работают, на вопросы бот отвечает цитатами или передаёт их рекрутеру.{% endif %}</p>
-
-<div class="cards">
-  <div class="stat accent"><b>{{ total }}</b>новичков всего</div>
-  <div class="stat"><b>{{ stages.not_linked }}</b>не открыли ссылку</div>
-  <div class="stat"><b>{{ stages.before }}</b>ждут выхода</div>
-  <div class="stat"><b>{{ stages.onboarding }}</b>на испытательном сроке</div>
-  <div class="stat"><b>{{ stages.done }}</b>прошли адаптацию</div>
-  <div class="stat"><b>{{ opened|length }}</b>вопросов ждут ответа</div>
-  <div class="stat"><b class="{% if states.values()|selectattr('overdue')|list %}red{% endif %}">{{ states.values()|selectattr("overdue")|list|length }}</b>из них просрочено</div>
-  <div class="stat"><b>{{ waiting }}</b>ответов ждут рабочего времени новичка</div>
-  <div class="stat"><b class="{% if red %}red{% endif %}">{{ red|length }}</b>красных флагов за 7 дней</div>
-</div>
-
 {% set late = [] %}{% for q in opened %}{% if states[q.id].overdue %}{% set _ = late.append(q) %}{% endif %}{% endfor %}
+<div class="page-head">
+  <div><h1 class="title">Дашборд</h1><p class="lead">Как идёт адаптация: люди, вопросы и настроение.</p></div>
+  <span class="chip {% if model_up %}ok{% else %}warn{% endif %}">{% if model_up %}Модель работает{% else %}Упрощённый режим{% endif %}</span>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><b>{{ stages.onboarding }}</b><span>на испытательном сроке</span></div>
+  <div class="kpi"><b>{{ stages.before }}</b><span>ждут выхода</span></div>
+  <div class="kpi"><b>{{ stages.not_linked }}</b><span>не открыли ссылку</span></div>
+  <div class="kpi"><b>{{ opened|length }}</b><span>вопросов ждут ответа</span></div>
+  <div class="kpi{% if late %} alarm{% endif %}"><b>{{ late|length }}</b><span>просрочено</span></div>
+  <div class="kpi{% if red %} alarm{% endif %}"><b>{{ red|length }}</b><span>красных флагов за неделю</span></div>
+</div>
+
 {% if late %}
-<h2 class="red">Просроченные вопросы</h2>
-<div class="table"><table>
-  <tr><th>Новичок</th><th>Вопрос</th><th>Ждёт</th><th>Почему красный</th></tr>
-  {% for q in late %}
-  <tr class="overdue">
-    <td><a href="/employees/{{ q.employee_id }}">{{ q.full_name }}</a></td>
-    <td class="text">{{ q.question }}</td>
-    <td>{{ states[q.id].waited }}</td>
-    <td>{{ states[q.id].notes|join("; ") or "ждёт дольше двух часов" }}</td>
-  </tr>
-  {% endfor %}
-</table></div>
-<p><a href="/questions">Ответить на вопросы</a></p>
+<section class="section">
+  <div class="card-head"><h2 class="section-title">Просроченные вопросы</h2><a href="/questions">Ответить</a></div>
+  <div class="card flat"><div class="list">
+    {% for q in late %}
+    <div class="row between">
+      <div class="grow"><a href="/employees/{{ q.employee_id }}"><b>{{ q.full_name }}</b></a><p class="text" style="margin-top:2px">{{ q.question }}</p>
+        <p class="caption" style="margin-top:4px">{{ states[q.id].notes|join("; ") or "ждёт дольше двух часов" }}</p></div>
+      <span class="chip bad">{{ icon("clock", "sm") }}{{ states[q.id].waited }}</span>
+    </div>
+    {% endfor %}
+  </div></div>
+</section>
 {% endif %}
 
-<h2>По местам работы</h2>
-{% if places %}
-<div class="table"><table>
-  <tr><th>Место работы</th><th>Рабочее время</th><th>Рекрутеры</th><th>Новичков</th><th>Открытых вопросов</th><th>Просрочено</th><th>Красных флагов за 7 дней</th></tr>
-  {% for p in places %}
-  <tr>
-    <td>{{ p.workplace.name if p.workplace else "Место работы не указано" }}</td>
-    <td>{{ p.workplace|schedule if p.workplace else "" }}</td>
-    <td>{{ p.workplace.recruiter_names or "никто" if p.workplace else "" }}</td>
-    <td>{{ p.employees }}</td>
-    <td>{{ p.open }}</td>
-    <td>{% if p.overdue %}<span class="red">{{ p.overdue }}</span>{% else %}0{% endif %}</td>
-    <td>{% if p.flags %}<span class="red">{{ p.flags }}</span>{% else %}0{% endif %}</td>
-  </tr>
-  {% endfor %}
-</table></div>
-{% else %}
-<p class="muted">Новичков и мест работы пока нет.</p>
-{% endif %}
+<section class="section">
+  <div class="card-head"><h2 class="section-title">Места работы</h2><a href="/workplaces">Все места</a></div>
+  {% if places %}
+  <div class="grid">
+    {% for p in places %}
+    <div class="card stack">
+      <div class="row between"><b>{{ p.workplace.name if p.workplace else "Место не указано" }}</b>{% if p.overdue %}<span class="chip bad">просрочено {{ p.overdue }}</span>{% elif p.open %}<span class="chip warn">вопросов {{ p.open }}</span>{% else %}<span class="chip ok">всё в порядке</span>{% endif %}</div>
+      {% if p.workplace %}<p class="small muted">{{ p.workplace|schedule }} · {{ p.workplace.recruiter_names or "рекрутер не назначен" }}</p>{% endif %}
+      <div class="row small"><span>Новичков: <b>{{ p.employees }}</b></span><span>Открытых вопросов: <b>{{ p.open }}</b></span><span>Флагов за неделю: <b{% if p.flags %} style="color:var(--error)"{% endif %}>{{ p.flags }}</b></span></div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}<div class="card empty">Мест работы и новичков пока нет.</div>{% endif %}
+</section>
 
-<h2>По рекрутерам</h2>
-{% if recruiters %}
-<div class="table"><table>
-  <tr><th>Рекрутер</th><th>График</th><th>Сейчас</th><th>МАКС</th><th>Новичков</th><th>Ждут ответа</th><th>Просрочено</th><th>Отвечено</th><th>Обычно отвечает за</th><th>Ответов за час</th></tr>
-  {% for item in recruiters %}
-  {% set r = item.recruiter %}{% set st = item.stats %}
-  <tr>
-    <td><a href="/recruiters/{{ r.id }}">{{ r.name }}</a></td>
-    <td>{{ r|schedule }}</td>
-    <td>{% if item.working %}<span class="chip ok">работает</span>{% else %}<span class="chip">не работает</span>{% endif %}</td>
-    <td>{% if r.max_user_id %}<span class="chip ok">привязан</span>{% else %}<span class="chip bad">не привязан</span>{% endif %}</td>
-    <td>{{ item.employees }}</td>
-    <td>{{ st.open }}</td>
-    <td>{% if st.overdue %}<span class="red">{{ st.overdue }}</span>{% else %}0{% endif %}</td>
-    <td>{{ st.answered }}</td>
-    <td>{{ st.median or "-" }}</td>
-    <td>{% if st.within_hour is not none %}{{ st.within_hour }}%{% else %}-{% endif %}</td>
-  </tr>
-  {% endfor %}
-</table></div>
-{% else %}
-<p class="muted">Рекрутеров пока нет.</p>
-{% endif %}
+<section class="section">
+  <div class="card-head"><h2 class="section-title">Рекрутеры</h2><a href="/recruiters">Все рекрутеры</a></div>
+  {% if recruiters %}
+  <div class="card flat table-wrap"><table>
+    <tr><th>Рекрутер</th><th>Сейчас</th><th>Новичков</th><th>Ждут ответа</th><th>Отвечено</th><th>Обычно отвечает за</th><th>За час</th></tr>
+    {% for item in recruiters %}{% set r = item.recruiter %}{% set st = item.stats %}
+    <tr>
+      <td><a class="person" href="/recruiters/{{ r.id }}"><span class="avatar sm">{{ r.name|initials }}</span><span><span class="name">{{ r.name }}</span>{% if not r.max_user_id %}<br><span class="caption" style="color:var(--error)">МАКС не привязан</span>{% endif %}</span></a></td>
+      <td>{% if item.working %}<span class="chip ok">работает</span>{% else %}<span class="chip plain">не работает</span>{% endif %}</td>
+      <td class="num">{{ item.employees }}</td>
+      <td class="num">{{ st.open }}{% if st.overdue %} <span class="chip bad">просрочено {{ st.overdue }}</span>{% endif %}</td>
+      <td class="num">{{ st.answered }}</td>
+      <td>{{ st.median or "нет ответов" }}</td>
+      <td class="num">{% if st.within_hour is not none %}{{ st.within_hour }}%{% else %}нет{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<div class="card empty">Рекрутеров пока нет. <a href="/recruiters">Добавить</a></div>{% endif %}
+</section>
 
-{% if topics %}
-<h2>О чём чаще всего трудности</h2>
-<p>{% for t in topics %}{{ t.topic }}: {{ t.n }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
-{% endif %}
-
-{% if red %}
-<h2>Красные флаги за неделю</h2>
-<div class="table"><table>
-  <tr><th>Когда</th><th>Новичок</th><th>Тема</th><th>Сообщение</th></tr>
-  {% for f in red %}
-  <tr><td>{{ f.created_at|local }}</td><td><a href="/employees/{{ f.employee_id }}">{{ f.full_name }}</a></td><td>{{ f.topic }}</td><td class="text">{{ f.text }}</td></tr>
-  {% endfor %}
-</table></div>
-{% endif %}
+<div class="grid-2 section">
+  <div class="card">
+    <h2 class="section-title" style="margin-bottom:16px">Красные флаги за неделю</h2>
+    {% if red %}<div class="stack">{% for f in red %}<div class="notice bad"><b><a href="/employees/{{ f.employee_id }}">{{ f.full_name }}</a>: {{ f.topic }}</b><span class="caption">{{ f.created_at|local }}</span><p class="quote text">«{{ f.text }}»</p></div>{% endfor %}</div>
+    {% else %}<p class="muted">Красных флагов нет.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2 class="section-title" style="margin-bottom:16px">О чём трудности</h2>
+    {% if topics %}<div class="stack">{% for t in topics %}<div class="row between"><span>{{ t.topic }}</span><span class="badge">{{ t.n }}</span></div>{% endfor %}</div>
+    {% else %}<p class="muted">Жалоб и трудностей пока не было.</p>{% endif %}
+    {% if waiting %}<p class="small muted" style="margin-top:16px">Ответов ждут рабочего времени новичка: {{ waiting }}</p>{% endif %}
+  </div>
+</div>
 {% endblock %}

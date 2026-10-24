@@ -1,120 +1,123 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, status_chip %}
 {% block title %}{{ employee.full_name }}{% endblock %}
 {% block content %}
-<p><a href="/">Все новички</a></p>
-<h1>{{ employee.full_name }}</h1>
+<a class="back" href="/">{{ icon("back", "sm") }}Новички</a>
+<div class="page-head">
+  <div class="person">
+    <span class="avatar lg">{{ employee.full_name|initials }}</span>
+    <div><h1 class="title">{{ employee.full_name }}</h1>
+      <p class="lead">{{ employee.workplace_name or "Место работы не указано" }} · {{ card.when }}</p>
+      <div class="chips" style="margin-top:8px">{{ status_chip(card.status) }}{% if employee.address %}<span class="chip plain">на «{{ "ты" if employee.address == "ty" else "вы" }}»</span>{% endif %}</div>
+    </div>
+  </div>
+  {% if demo and employee.linked_at %}
+  <form method="post" action="/employees/{{ employee.id }}/next" class="inline"><button class="btn secondary">Следующий шаг (демо)</button></form>
+  {% endif %}
+</div>
 
-<div class="table"><table>
-  <tr><th>Имя для обращения</th><td>{{ employee.first_name }}</td></tr>
-  <tr><th>Место работы</th><td>{{ employee.workplace_name or "не указано" }}{% if schedule %}, рабочее время {{ schedule }}{% endif %}</td></tr>
-  <tr><th>Выход</th><td>{{ employee.start_date }}</td></tr>
-  <tr><th>Часовой пояс</th><td>{{ employee.timezone|zone }}, {{ employee.timezone }}</td></tr>
-  <tr><th>Теги</th><td>{{ employee.tags or "нет" }}</td></tr>
-  <tr><th>Рекрутер</th><td>{{ employee.recruiter_name or "не назначен" }}</td></tr>
-  <tr><th>Обращение</th><td>{% if employee.address == "ty" %}на ты{% elif employee.address == "vy" %}на вы{% else %}ещё не выбрано{% endif %}</td></tr>
-  <tr><th>В боте</th><td>{% if employee.linked_at %}с {{ employee.linked_at|local }}{% else %}ссылка ещё не открыта{% endif %}</td></tr>
-</table></div>
-{% if late %}<p class="muted">Новичок открыл ссылку поздно: пропущенные необязательные шаги он не получит, обязательные приходят коротко, не больше трёх в день в рабочее время.</p>{% endif %}
-{% if not schedule %}<p class="muted">Место работы не указано, поэтому ответы HR уходят новичку сразу, в любое время.</p>{% endif %}
+<div class="grid-2">
+  <div class="stack-24">
+    {% if new and link %}
+    <div class="card">
+      <div class="card-head"><h2 class="section-title">Ссылка готова</h2><span class="chip ok">{{ icon("check", "sm") }}Сохранено</span></div>
+      <p class="muted">Отправь ссылку новичку или распечатай QR в оффер. По ссылке войдёт только один аккаунт МАКС.</p>
+      <div class="row" style="margin-top:16px; align-items:flex-start"><img class="qr" src="/employees/{{ employee.id }}/qr.png" alt="QR-код личной ссылки" width="200" height="200"><div class="grow linkbox">{{ link }}</div></div>
+    </div>
+    {% endif %}
 
-<form method="post" action="/employees/{{ employee.id }}/move" class="block row">
-  <label class="inline">Место работы
-    <select name="workplace_id">
-      <option value="">не указано</option>
-      {% for w in workplaces %}<option value="{{ w.id }}"{% if w.id == employee.workplace_id %} selected{% endif %}>{{ w.name }}</option>{% endfor %}
-    </select>
-  </label>
-  <label class="inline">Рекрутер
-    <select name="recruiter_id">
-      <option value="">не назначен</option>
-      {% for r in recruiters %}<option value="{{ r.id }}"{% if r.id == employee.recruiter_id %} selected{% endif %}>{{ r.name }}</option>{% endfor %}
-    </select>
-  </label>
-  <button>Сохранить</button>
-</form>
+    {% for f in flags|reverse %}
+    <div class="notice {% if f.risk == 2 %}bad{% else %}warn{% endif %}">
+      <b>{% if f.risk == 2 %}Красный флаг{% else %}Нужно внимание{% endif %}: {{ f.topic }}</b>
+      {{ f.reason or "причина не указана" }} · {{ f.created_at|local }}
+      <p class="quote text">«{{ f.text }}»</p>
+    </div>
+    {% endfor %}
+    {% if late %}<div class="notice">Открыл ссылку поздно: пропущенные необязательные шаги не пришли, обязательные приходят коротко, до трёх в день в рабочее время.</div>{% endif %}
 
-<h2>Ссылка и QR</h2>
-{% if link %}
-<p><a href="{{ link }}">{{ link }}</a></p>
-{% if employee.max_user_id %}<p class="muted">Ссылка одноразовая и уже открыта, второй аккаунт по ней не войдёт.</p>{% endif %}
-<img class="qr" src="/employees/{{ employee.id }}/qr.png" width="200" height="200" alt="QR-код личной ссылки">
-{% else %}
-<p>Имя бота ещё не получено от МАКС, ссылки пока нет. Обновите страницу через минуту.</p>
-{% endif %}
+    <div class="card flat">
+      <div class="card-head" style="padding:20px 20px 0"><h2 class="section-title">Шаги</h2><span class="muted small">{{ steps|length }}</span></div>
+      {% if steps %}
+      {% set hidden = steps|length - 8 %}
+      {% if hidden > 0 %}<details class="more"><summary class="disclose" style="padding:12px 20px">Ранние шаги: {{ hidden }}</summary>{% endif %}
+      <ol class="steps">
+        {% for s in steps %}
+        {% if hidden > 0 and loop.index == hidden + 1 %}</ol></details><ol class="steps">{% endif %}
+        <li class="{% if s.status in ('sent', 'answered') %}done{% elif s.status == 'skipped' %}skipped{% endif %}">
+          <span class="mark">{% if s.status == 'skipped' %}{{ icon("minus", "sm") }}{% elif s.status == 'reminded' %}{{ icon("clock", "sm") }}{% else %}{{ icon("check", "sm") }}{% endif %}</span>
+          <div class="small">{{ titles.get(s.step_id, "")|replace("{имя}", employee.first_name)|truncate(110) }}
+            <div class="caption">{{ {"sent": "отправлен", "answered": "есть ответ", "skipped": "пропущен", "reminded": "напомнили"}.get(s.status, s.status) }}</div></div>
+          <span class="when">{{ s.sent_at|local }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}<p class="empty">Пока ничего не отправлено.</p>{% endif %}
+    </div>
 
-{% if demo and employee.linked_at %}
-<h2>Демо</h2>
-<p>Сейчас у новичка: {{ employee_now }}{% if employee.time_shift %} (время сдвинуто на {{ employee.time_shift // 3600 }} ч){% endif %}</p>
-<form method="post" action="/employees/{{ employee.id }}/next"><button>Следующий шаг</button></form>
-{% endif %}
+    {% if answers %}
+    <div class="card flat">
+      <div class="card-head" style="padding:20px 20px 0"><h2 class="section-title">Ответы на опросы</h2></div>
+      <div class="list">
+        {% for a in answers %}
+        <div><p class="small muted">{{ a.question|truncate(140) }}</p><p class="row" style="margin-top:4px"><b>{{ a.answer }}</b>{% if a.score is not none %}<span class="chip {% if a.score >= 8 %}ok{% elif a.score >= 5 %}warn{% else %}bad{% endif %}">{{ a.score }} из 10</span>{% endif %}</p></div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
-<h2>Шаги</h2>
-{% if steps %}
-<div class="table"><table>
-  <tr><th>Шаг</th><th>Текст</th><th>Состояние</th><th>Отправлен</th><th>Ответ</th></tr>
-  {% for s in steps %}
-  <tr>
-    <td>{{ s.step_id }}</td>
-    <td class="text">{{ titles.get(s.step_id, "")|truncate(90) }}</td>
-    <td>{{ {"sent": "отправлен", "answered": "есть ответ", "skipped": "пропущен", "reminded": "напомнили"}.get(s.status, s.status) }}</td>
-    <td>{{ s.sent_at|local }}</td>
-    <td>{{ s.answered_at|local }}</td>
-  </tr>
-  {% endfor %}
-</table></div>
-{% else %}
-<p class="muted">Пока ничего не отправлено.</p>
-{% endif %}
+    <div class="card flat">
+      <div class="card-head" style="padding:20px 20px 0"><h2 class="section-title">Переписка</h2></div>
+      {% if messages %}
+      <div class="chat">
+        {% for m in messages %}
+        <div class="bubble {{ m.role }}"><span class="who">{{ {"employee": employee.first_name, "bot": "Корсик", "hr": "HR"}.get(m.role, m.role) }} · {{ m.created_at|local }}</span>{{ m.text }}</div>
+        {% endfor %}
+      </div>
+      {% else %}<p class="empty">Переписки пока нет.</p>{% endif %}
+    </div>
+  </div>
 
-<h2>Ответы на опросы</h2>
-{% if answers %}
-<div class="table"><table>
-  <tr><th>Шаг</th><th>Вопрос</th><th>Ответ</th><th>Оценка</th><th>Когда</th></tr>
-  {% for a in answers %}
-  <tr>
-    <td>{{ a.step_id }}</td>
-    <td class="text">{{ a.question|truncate(120) }}</td>
-    <td class="text">{{ a.answer }}</td>
-    <td>{{ a.score if a.score is not none else "" }}</td>
-    <td>{{ a.created_at|local }}</td>
-  </tr>
-  {% endfor %}
-</table></div>
-{% else %}
-<p class="muted">Ответов пока нет.</p>
-{% endif %}
+  <div class="stack-24">
+    <div class="card">
+      <h2 class="section-title" style="margin-bottom:16px">Данные</h2>
+      <dl class="kv">
+        <dt>Выход</dt><dd>{{ employee.start_date }}</dd>
+        <dt>Рабочее время</dt><dd>{{ schedule or "не ограничено: место не указано" }}</dd>
+        <dt>Часовой пояс</dt><dd>{{ employee.timezone|zone }}</dd>
+        <dt>Теги</dt><dd>{{ employee.tags or "нет" }}</dd>
+        <dt>В боте</dt><dd>{% if employee.linked_at %}с {{ employee.linked_at|local }}{% else %}ссылка не открыта{% endif %}</dd>
+      </dl>
+    </div>
 
-<h2>Флаги</h2>
-{% if flags %}
-<div class="table"><table>
-  <tr><th>Когда</th><th>Риск</th><th>Тема</th><th>Причина</th><th>Сообщение</th></tr>
-  {% for f in flags %}
-  <tr>
-    <td>{{ f.created_at|local }}</td>
-    <td>{% if f.risk == 2 %}<span class="chip bad">красный флаг</span>{% else %}<span class="chip warn">есть трудность</span>{% endif %}</td>
-    <td>{{ f.topic }}</td>
-    <td>{{ f.reason }}</td>
-    <td class="text">{{ f.text }}</td>
-  </tr>
-  {% endfor %}
-</table></div>
-{% else %}
-<p class="muted">Флагов нет.</p>
-{% endif %}
+    <form method="post" action="/employees/{{ employee.id }}/move" class="card stack">
+      <h2 class="section-title">Место и рекрутер</h2>
+      <label class="field"><span>Место работы</span>
+        <select name="workplace_id"><option value="">Не указано</option>{% for w in workplaces %}<option value="{{ w.id }}"{% if w.id == employee.workplace_id %} selected{% endif %}>{{ w.name }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Рекрутер</span>
+        <select name="recruiter_id"><option value="">Не назначен</option>{% for r in recruiters %}<option value="{{ r.id }}"{% if r.id == employee.recruiter_id %} selected{% endif %}>{{ r.name }}</option>{% endfor %}</select></label>
+      <button class="btn secondary">Сохранить</button>
+    </form>
 
-<h2>Переписка</h2>
-{% if messages %}
-<div class="table"><table>
-  <tr><th>Когда</th><th>Кто</th><th>Текст</th></tr>
-  {% for m in messages %}
-  <tr>
-    <td>{{ m.created_at|local }}</td>
-    <td>{{ {"employee": "новичок", "bot": "бот", "hr": "HR"}.get(m.role, m.role) }}</td>
-    <td class="text">{{ m.text }}</td>
-  </tr>
-  {% endfor %}
-</table></div>
-{% else %}
-<p class="muted">Переписки нет.</p>
-{% endif %}
+    {% if opened %}
+    <div class="card flat">
+      <div class="card-head" style="padding:20px 20px 0"><h2 class="section-title">Вопросы к HR</h2></div>
+      <div class="list">
+        {% for q in opened %}
+        <div><p class="row between"><span class="caption">{{ q.created_at|local }}</span>{% if q.status == "open" %}<span class="chip warn">ждёт ответа</span>{% elif not q.delivered_at %}<span class="chip">ждёт рабочего времени</span>{% else %}<span class="chip ok">отвечен</span>{% endif %}</p>
+          <p class="text" style="margin-top:4px"><b>{{ q.question }}</b></p>{% if q.answer %}<p class="small muted text" style="margin-top:4px">{{ q.answer }}</p>{% endif %}</div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if link and not new %}
+    <div class="card">
+      <h2 class="section-title" style="margin-bottom:12px">Ссылка и QR</h2>
+      <img class="qr" src="/employees/{{ employee.id }}/qr.png" alt="QR-код личной ссылки" width="200" height="200">
+      <p class="linkbox" style="margin-top:12px">{{ link }}</p>
+      {% if employee.max_user_id %}<p class="caption" style="margin-top:8px">Ссылка уже открыта, второй аккаунт по ней не войдёт.</p>{% endif %}
+    </div>
+    {% elif not link %}<div class="notice">Имя бота ещё не получено от МАКС, ссылки пока нет.</div>{% endif %}
+  </div>
+</div>
 {% endblock %}

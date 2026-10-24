@@ -1,45 +1,38 @@
 {% extends "base.html" %}
-{% from "_forms.html" import schedule_fields %}
+{% from "_ui.html" import icon, schedule_fields %}
 {% block title %}Рекрутеры{% endblock %}
 {% block content %}
-<h1>Рекрутеры</h1>
+<div class="page-head"><div><h1 class="title">Рекрутеры</h1><p class="lead">Получают вопросы новичков и красные флаги в МАКС. Напоминания приходят раз в час, до пяти раз, только в рабочее время.</p></div></div>
+
 {% if recruiters %}
-<div class="table"><table>
-  <tr><th>Имя</th><th>Места работы</th><th>График</th><th>Сейчас</th><th>МАКС</th><th>Новичков</th><th>Открытых вопросов</th><th>Ответ обычно за</th><th>Ссылка для привязки</th></tr>
-  {% for r in recruiters %}
-  {% set st = stats[r.id] %}
-  <tr>
-    <td><a href="/recruiters/{{ r.id }}">{{ r.name }}</a></td>
-    <td>{{ r.workplace_names or "не выбраны" }}</td>
-    <td>{{ r|schedule }}, {{ r.timezone|zone }}</td>
-    <td>{% if working[r.id] %}<span class="chip ok">работает</span>{% else %}<span class="chip">не работает</span>{% endif %}</td>
-    <td>{% if r.max_user_id %}<span class="chip ok">привязан</span>{% else %}<span class="chip bad">не привязан</span>{% endif %}</td>
-    <td>{{ r.employees }}</td>
-    <td>{{ st.open }}{% if st.overdue %} <span class="red">(просрочено {{ st.overdue }})</span>{% endif %}</td>
-    <td>{{ st.median or "ответов ещё не было" }}</td>
-    <td>
-      {% if links[r.id] %}
-      <a href="{{ links[r.id] }}">{{ links[r.id] }}</a><br>
-      <img class="qr" src="/recruiters/{{ r.id }}/qr.png" width="120" height="120" alt="QR-код ссылки для {{ r.name }}">
-      {% else %}имя бота ещё не получено от МАКС{% endif %}
-    </td>
-  </tr>
+<div class="grid">
+  {% for r in recruiters %}{% set st = stats[r.id] %}
+  <a class="card ecard" href="/recruiters/{{ r.id }}">
+    <div class="person"><span class="avatar">{{ r.name|initials }}</span><div class="grow"><div class="name">{{ r.name }}</div><div class="meta">{{ r|schedule }}</div></div></div>
+    <p class="small muted">{{ r.workplace_names or "Места работы не выбраны" }}</p>
+    <div class="chips">
+      {% if working[r.id] %}<span class="chip ok">работает</span>{% else %}<span class="chip plain">не работает</span>{% endif %}
+      {% if not r.max_user_id %}<span class="chip bad">МАКС не привязан</span>{% endif %}
+      {% if st.overdue %}<span class="chip bad">просрочено {{ st.overdue }}</span>{% elif st.open %}<span class="chip warn">ждут ответа {{ st.open }}</span>{% endif %}
+    </div>
+    <p class="small">Новичков: <b>{{ r.employees }}</b> · Отвечает обычно за: <b>{{ st.median or "нет ответов" }}</b></p>
+  </a>
   {% endfor %}
-</table></div>
+</div>
 {% else %}
-<p class="muted">Рекрутеров пока нет.</p>
+<div class="card empty">Рекрутеров пока нет.</div>
 {% endif %}
 
-<h2>Добавить рекрутера</h2>
-<form method="post" action="/recruiters" class="block">
-  <label>Имя <input name="name" required maxlength="200"></label>
-  {{ schedule_fields(zones, default_zone, [1, 2, 3, 4, 5], "09:00", "18:00") }}
-  {% if workplaces %}
-  <p>Места работы, новичков которых он ведёт:
-    {% for w in workplaces %}<label class="inline"><input type="checkbox" name="workplaces" value="{{ w.id }}"> {{ w.name }}</label>{% endfor %}
-  </p>
-  {% endif %}
-  <button>Добавить</button>
-</form>
-<p class="muted">Рекрутер открывает свою ссылку в МАКС, и бот присылает ему вопросы новичков и красные флаги. Если он не ответил, бот напоминает раз в час, до пяти раз, и только в его рабочее время.</p>
+<section class="section">
+  <div class="card-head"><h2 class="section-title">Добавить рекрутера</h2></div>
+  <form method="post" action="/recruiters" class="card form">
+    <label class="field full"><span>Имя</span><input name="name" required maxlength="200" placeholder="Ольга Петрова"></label>
+    {{ schedule_fields(zones, default_zone, [1, 2, 3, 4, 5], "09:00", "18:00") }}
+    {% if workplaces %}
+    <div class="field full"><span>Места работы, новичков которых ведёт</span>
+      <div class="toggles">{% for w in workplaces %}<label class="toggle"><input type="checkbox" name="workplaces" value="{{ w.id }}"><span>{{ w.name }}</span></label>{% endfor %}</div></div>
+    {% endif %}
+    <div class="actions full"><button class="btn">Добавить</button><span class="small muted">После этого в карточке появится ссылка для привязки МАКС.</span></div>
+  </form>
+</section>
 {% endblock %}

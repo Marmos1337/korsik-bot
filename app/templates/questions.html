@@ -1,70 +1,67 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon %}
 {% block title %}Вопросы{% endblock %}
 {% block content %}
-<h1>Вопросы без ответа в документах</h1>
+<div class="page-head"><div><h1 class="title">Вопросы</h1><p class="lead">То, на что бот не нашёл ответа в документах. Ответ придёт новичку в тот же чат.</p></div></div>
+
 {% for place, items in blocks.items() %}
-<h2>{{ place }}: {{ items|length }}</h2>
-{% for q, context, state in items %}
-<div id="q{{ q.id }}" class="card{% if state.overdue %} overdue{% endif %}">
-  <h3 style="margin-top:0">{{ q.created_at|local }}, <a href="/employees/{{ q.employee_id }}">{{ q.full_name }}</a>{% if q.tags %} ({{ q.tags }}){% endif %}</h3>
-  <p>
-    {% if state.overdue %}<span class="chip bad">просрочен</span>{% else %}<span class="chip warn">ждёт ответа</span>{% endif %} {{ state.waited }}.
-    {% if q.recruiter_name %}Рекрутер {{ q.recruiter_name }}{% if q.recruiter_linked %}: получил вопрос в МАКС, напоминаний {{ state.reminders }} из 5{% endif %}.{% endif %}
-    {% for note in state.notes %}<br><span class="red">{{ note }}</span>{% endfor %}
-  </p>
-  <p class="text"><b>{{ q.question }}</b></p>
-  {% if context %}
-  <details><summary>Последние сообщения</summary>
-    <div class="table"><table>
-      {% for m in context %}
-      <tr><td>{{ {"employee": "новичок", "bot": "бот", "hr": "HR"}.get(m.role, m.role) }}</td><td class="text">{{ m.text }}</td></tr>
-      {% endfor %}
-    </table></div>
-  </details>
-  {% endif %}
-  <form method="post" action="/questions/{{ q.id }}/answer">
-    <input type="hidden" name="employee_id" value="{{ q.employee_id }}">
-    <input type="hidden" name="asked_at" value="{{ q.created_at }}">
-    <label>Ответ новичку <textarea name="answer" required rows="3" cols="70" maxlength="3000"></textarea></label>
-    <button>Отправить</button>
-  </form>
-</div>
-{% endfor %}
+<section class="section" style="margin-top:0; margin-bottom:32px">
+  <div class="card-head"><h2 class="section-title">{{ place }}</h2><span class="badge">{{ items|length }}</span></div>
+  <div class="stack">
+  {% for q, context, state in items %}
+  <div id="q{{ q.id }}" class="card stack{% if state.overdue %} late{% endif %}">
+    <div class="row between">
+      <a class="person" href="/employees/{{ q.employee_id }}"><span class="avatar sm">{{ q.full_name|initials }}</span><span><span class="name">{{ q.full_name }}</span><br><span class="caption">{{ q.created_at|local }}{% if q.tags %} · {{ q.tags }}{% endif %}{% if q.recruiter_name %} · рекрутер {{ q.recruiter_name }}{% endif %}</span></span></a>
+      {% if state.overdue %}<span class="chip bad">{{ icon("clock", "sm") }}ждёт {{ state.waited }}</span>{% else %}<span class="chip warn">{{ icon("clock", "sm") }}ждёт {{ state.waited }}</span>{% endif %}
+    </div>
+    <p class="text" style="font-size:18px; line-height:26px"><b>{{ q.question }}</b></p>
+    {% if q.recruiter_linked %}<p class="small muted">Рекрутер получил вопрос в МАКС, напоминаний {{ state.reminders }} из 5.</p>{% endif %}
+    {% for note in state.notes %}<p class="notes">{{ note|capitalize }}</p>{% endfor %}
+    {% if context %}
+    <details><summary class="disclose">Последние сообщения</summary>
+      <div class="chat" style="padding:12px 0 0">{% for m in context %}<div class="bubble {{ m.role }}">{{ m.text }}</div>{% endfor %}</div>
+    </details>
+    {% endif %}
+    <form method="post" action="/questions/{{ q.id }}/answer" class="stack">
+      <input type="hidden" name="employee_id" value="{{ q.employee_id }}">
+      <input type="hidden" name="asked_at" value="{{ q.created_at }}">
+      <label class="field"><span>Ответ новичку</span><textarea name="answer" required rows="3" maxlength="3000"></textarea></label>
+      <div class="actions"><button class="btn compact">{{ icon("send", "sm") }}Ответить</button></div>
+    </form>
+  </div>
+  {% endfor %}
+  </div>
+</section>
 {% else %}
-<p class="muted">Открытых вопросов нет.</p>
+<div class="card empty"><img src="/static/avatar.png" alt="" width="96" height="96"><p>Открытых вопросов нет. Всё, о чём спрашивали новички, уже отвечено.</p></div>
 {% endfor %}
 
 {% if waiting %}
-<h2>Ответы ждут рабочего времени новичка</h2>
-<div class="table"><table>
-  <tr><th>Новичок</th><th>Вопрос</th><th>Ответ</th><th>Уйдёт</th><th></th></tr>
-  {% for q, when in waiting %}
-  <tr>
-    <td><a href="/employees/{{ q.employee_id }}">{{ q.full_name }}</a></td>
-    <td class="text">{{ q.question }}</td>
-    <td class="text">{{ q.answer }}</td>
-    <td>{{ when }} по его времени</td>
-    <td><form method="post" action="/questions/{{ q.id }}/send-now"><button class="secondary compact">Отправить сейчас</button></form></td>
-  </tr>
-  {% endfor %}
-</table></div>
+<section class="section">
+  <div class="card-head"><h2 class="section-title">Ждут рабочего времени новичка</h2></div>
+  <div class="card flat"><div class="list">
+    {% for q, when in waiting %}
+    <div class="row between">
+      <div class="grow"><a href="/employees/{{ q.employee_id }}"><b>{{ q.full_name }}</b></a><p class="text small" style="margin-top:2px">{{ q.question }}</p><p class="text small muted" style="margin-top:2px">Ответ: {{ q.answer }}</p><p class="caption" style="margin-top:4px">Уйдёт {{ when }} по его времени</p></div>
+      <form method="post" action="/questions/{{ q.id }}/send-now" class="inline"><button class="btn secondary compact">Отправить сейчас</button></form>
+    </div>
+    {% endfor %}
+  </div></div>
+</section>
 {% endif %}
 
 {% if answered %}
-<h2>Недавние ответы</h2>
-<div class="table"><table>
-  <tr><th>Новичок</th><th>Место работы</th><th>Вопрос</th><th>Ответ</th><th>Кто ответил</th><th>Когда</th><th>За сколько</th></tr>
-  {% for q in answered %}
-  <tr>
-    <td><a href="/employees/{{ q.employee_id }}">{{ q.full_name }}</a></td>
-    <td>{{ q.workplace_name or "" }}</td>
-    <td class="text">{{ q.question }}</td>
-    <td class="text">{{ q.answer }}</td>
-    <td>{{ q.answered_by }}</td>
-    <td>{{ q.answered_at|local }}</td>
-    <td>{{ took.get(q.id, "") }}</td>
-  </tr>
-  {% endfor %}
-</table></div>
+<section class="section">
+  <div class="card-head"><h2 class="section-title">Недавние ответы</h2></div>
+  <div class="card flat"><div class="list">
+    {% for q in answered %}
+    <div class="row between" style="align-items:flex-start">
+      <div class="grow"><a href="/employees/{{ q.employee_id }}"><b>{{ q.full_name }}</b></a>{% if q.workplace_name %}<span class="caption"> · {{ q.workplace_name }}</span>{% endif %}
+        <p class="text small" style="margin-top:2px">{{ q.question }}</p><p class="text small muted" style="margin-top:2px">{{ q.answer }}</p></div>
+      <div class="caption" style="text-align:right">{{ q.answered_by }}<br>{{ q.answered_at|local }}{% if took.get(q.id) %}<br>за {{ took[q.id] }}{% endif %}</div>
+    </div>
+    {% endfor %}
+  </div></div>
+</section>
 {% endif %}
 {% endblock %}

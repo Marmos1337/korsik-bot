@@ -1,70 +1,66 @@
 {% extends "base.html" %}
-{% from "_forms.html" import schedule_fields %}
+{% from "_ui.html" import icon, schedule_fields %}
 {% block title %}{{ recruiter.name }}{% endblock %}
 {% block content %}
-<p><a href="/recruiters">Все рекрутеры</a></p>
-<h1>{{ recruiter.name }}</h1>
-<p>График: {{ schedule }}, {{ recruiter.timezone|zone }}. Сейчас {% if working %}<span class="ok">работает</span>{% else %}не работает{% endif %}.
-  МАКС: {% if recruiter.max_user_id %}привязан{% else %}<span class="red">не привязан</span>{% if link %}, ссылка: <a href="{{ link }}">{{ link }}</a>{% endif %}{% endif %}.</p>
-
-<div class="cards">
-  <div class="stat"><b>{{ employees|length }}</b>новичков</div>
-  <div class="stat"><b>{{ stats.total }}</b>вопросов всего</div>
-  <div class="stat"><b>{{ stats.answered }}</b>отвечено</div>
-  <div class="stat"><b>{{ stats.open }}</b>ждут ответа</div>
-  <div class="stat"><b class="{% if stats.overdue %}red{% endif %}">{{ stats.overdue }}</b>просрочено</div>
-  <div class="stat"><b>{{ stats.median or "-" }}</b>обычное время ответа</div>
-  <div class="stat"><b>{% if stats.within_hour is not none %}{{ stats.within_hour }}%{% else %}-{% endif %}</b>ответов за час</div>
-  <div class="stat"><b>{{ stats.reminders }}</b>напоминаний отправлено</div>
+<a class="back" href="/recruiters">{{ icon("back", "sm") }}Рекрутеры</a>
+<div class="page-head">
+  <div class="person"><span class="avatar lg">{{ recruiter.name|initials }}</span>
+    <div><h1 class="title">{{ recruiter.name }}</h1><p class="lead">{{ schedule }}, {{ recruiter.timezone|zone }}</p>
+      <div class="chips" style="margin-top:8px">{% if working %}<span class="chip ok">сейчас работает</span>{% else %}<span class="chip plain">сейчас не работает</span>{% endif %}{% if recruiter.max_user_id %}<span class="chip ok">МАКС привязан</span>{% else %}<span class="chip bad">МАКС не привязан</span>{% endif %}</div></div>
+  </div>
 </div>
 
-<h2>Вопросы</h2>
-{% if questions %}
-<div class="table"><table>
-  <tr><th>Когда</th><th>Новичок</th><th>Вопрос</th><th>Состояние</th><th>Ответ</th></tr>
-  {% for q in questions %}
-  <tr{% if states.get(q.id) and states[q.id].overdue %} class="overdue"{% endif %}>
-    <td>{{ q.created_at|local }}</td>
-    <td><a href="/employees/{{ q.employee_id }}">{{ q.full_name }}</a></td>
-    <td class="text">{{ q.question }}</td>
-    <td>
-      {% if q.status == "open" %}
-        ждёт {{ states[q.id].waited }}, напоминаний {{ q.reminders }}
-        {% for note in states[q.id].notes %}<br><span class="red">{{ note }}</span>{% endfor %}
-      {% else %}
-        ответ за {{ took.get(q.id, "") }}{% if not q.delivered_at %}, ждёт рабочего времени новичка{% endif %}
+<div class="kpis">
+  <div class="kpi"><b>{{ employees|length }}</b><span>новичков</span></div>
+  <div class="kpi"><b>{{ stats.open }}</b><span>ждут ответа</span></div>
+  <div class="kpi{% if stats.overdue %} alarm{% endif %}"><b>{{ stats.overdue }}</b><span>просрочено</span></div>
+  <div class="kpi"><b>{{ stats.answered }}</b><span>отвечено</span></div>
+  <div class="kpi"><b class="word">{{ stats.median or "нет" }}</b><span>обычное время ответа</span></div>
+  <div class="kpi"><b>{% if stats.within_hour is not none %}{{ stats.within_hour }}%{% else %}нет{% endif %}</b><span>ответов за час</span></div>
+</div>
+
+<div class="grid-2 section">
+  <div class="stack-24">
+    <div class="card flat">
+      <div class="card-head" style="padding:20px 20px 0"><h2 class="section-title">Вопросы</h2><span class="muted small">напоминаний отправлено: {{ stats.reminders }}</span></div>
+      {% if questions %}
+      <div class="list">
+        {% for q in questions %}
+        <div class="stack" style="gap:4px">
+          <div class="row between"><a href="/employees/{{ q.employee_id }}"><b>{{ q.full_name }}</b></a>
+            {% if q.status == "open" %}<span class="chip {% if states[q.id].overdue %}bad{% else %}warn{% endif %}">ждёт {{ states[q.id].waited }}</span>
+            {% elif not q.delivered_at %}<span class="chip">ждёт рабочего времени новичка</span>
+            {% else %}<span class="chip ok">ответ за {{ took.get(q.id, "") }}</span>{% endif %}</div>
+          <p class="text">{{ q.question }}</p>
+          {% if q.answer %}<p class="small muted text">{{ q.answer }}{% if q.answered_by %} · {{ q.answered_by }}{% endif %}</p>{% endif %}
+          {% if q.status == "open" %}{% for note in states[q.id].notes %}<p class="caption" style="color:var(--error)">{{ note|capitalize }}</p>{% endfor %}{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}<p class="empty">Вопросов пока не было.</p>{% endif %}
+    </div>
+  </div>
+  <div class="stack-24">
+    <form method="post" action="/recruiters/{{ recruiter.id }}" class="card form" style="grid-template-columns:1fr">
+      <h2 class="section-title">Профиль и график</h2>
+      <label class="field"><span>Имя</span><input name="name" value="{{ recruiter.name }}" required maxlength="200"></label>
+      {{ schedule_fields(zones, recruiter.timezone, days, recruiter.work_start, recruiter.work_end) }}
+      {% if workplaces %}
+      <div class="field"><span>Места работы</span><div class="toggles">{% for w in workplaces %}<label class="toggle"><input type="checkbox" name="workplaces" value="{{ w.id }}"{% if w.id in mine %} checked{% endif %}><span>{{ w.name }}</span></label>{% endfor %}</div></div>
       {% endif %}
-    </td>
-    <td class="text">{{ q.answer or "" }}{% if q.answered_by %} <span class="muted">({{ q.answered_by }})</span>{% endif %}</td>
-  </tr>
-  {% endfor %}
-</table></div>
-{% else %}
-<p class="muted">Вопросов пока не было.</p>
-{% endif %}
-
-<h2>Новички</h2>
-{% if employees %}
-<div class="table"><table>
-  <tr><th>ФИО</th><th>Место работы</th><th>Выход</th><th>В боте</th></tr>
-  {% for e in employees %}
-  <tr><td><a href="/employees/{{ e.id }}">{{ e.full_name }}</a></td><td>{{ e.workplace_name or "не указано" }}</td><td>{{ e.start_date }}</td><td>{% if e.max_user_id %}да{% else %}ссылка не открыта{% endif %}</td></tr>
-  {% endfor %}
-</table></div>
-{% else %}
-<p class="muted">Новичков пока нет.</p>
-{% endif %}
-
-<h2>Профиль</h2>
-<form method="post" action="/recruiters/{{ recruiter.id }}" class="block">
-  <label>Имя <input name="name" value="{{ recruiter.name }}" required maxlength="200"></label>
-  {{ schedule_fields(zones, recruiter.timezone, days, recruiter.work_start, recruiter.work_end) }}
-  {% if workplaces %}
-  <p>Места работы:
-    {% for w in workplaces %}<label class="inline"><input type="checkbox" name="workplaces" value="{{ w.id }}"{% if w.id in mine %} checked{% endif %}> {{ w.name }}</label>{% endfor %}
-  </p>
-  {% endif %}
-  <button>Сохранить</button>
-</form>
-<p class="muted">Свой график рекрутер может поменять и сам, в мини-приложении бота в МАКС.</p>
+      <button class="btn">Сохранить</button>
+      <p class="caption">Свой график рекрутер может поменять и сам, в мини-приложении бота.</p>
+    </form>
+    {% if not recruiter.max_user_id and link %}
+    <div class="card"><h2 class="section-title" style="margin-bottom:12px">Привязать МАКС</h2>
+      <img class="qr" src="/recruiters/{{ recruiter.id }}/qr.png" alt="QR-код ссылки рекрутера" width="200" height="200">
+      <p class="linkbox" style="margin-top:12px">{{ link }}</p></div>
+    {% endif %}
+    <div class="card flat">
+      <div class="card-head" style="padding:20px 20px 0"><h2 class="section-title">Новички</h2></div>
+      {% if employees %}<div class="list">{% for e in employees %}<a class="person" href="/employees/{{ e.id }}"><span class="avatar sm">{{ e.full_name|initials }}</span><span><span class="name">{{ e.full_name }}</span><br><span class="caption">{{ e.workplace_name or "место не указано" }} · выход {{ e.start_date }}</span></span></a>{% endfor %}</div>
+      {% else %}<p class="empty">Новичков пока нет.</p>{% endif %}
+    </div>
+  </div>
+</div>
 {% endblock %}

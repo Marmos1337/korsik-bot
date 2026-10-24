@@ -81,6 +81,8 @@ templates.env.globals["overdue_questions"] = hr.overdue_count
 templates.env.globals["css"] = miniapp.CSS_URL
 templates.env.globals["day_names"] = hours.DAY_NAMES
 templates.env.filters["schedule"] = lambda row: hours.from_row(row).describe()
+templates.env.filters["initials"] = lambda name: "".join(w[0] for w in (name or "").split() if w[0].isalpha())[:2].upper() or "?"
+templates.env.filters["day"] = lambda stamp: datetime.fromisoformat(stamp).strftime("%d.%m") if stamp else ""
 
 
 @app.middleware("http")
@@ -146,6 +148,8 @@ def health():
 
 @app.get("/login")
 def login_form(request: Request):
+    if request.session.get("admin"):
+        return RedirectResponse("/dashboard", status_code=303)
     return page(request, "login.html")
 
 
@@ -167,19 +171,34 @@ def logout(request: Request):
 
 
 @app.get("/")
-def index(request: Request):
+def index(request: Request, q: str = "", workplace: str = "", status: str = ""):
     employees = db.query(
         "SELECT e.*, r.name AS recruiter_name, w.name AS workplace_name,"
-        " (SELECT COUNT(*) FROM sent_steps s WHERE s.employee_id = e.id AND s.status != 'skipped') AS steps_sent,"
         " (SELECT COUNT(*) FROM escalations q WHERE q.employee_id = e.id AND q.status = 'open') AS open_questions,"
-        " (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 2) AS red_flags"
+        " (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 2) AS red_flags,"
+        " (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 1) AS worries"
         " FROM employees e LEFT JOIN recruiters r ON r.id = e.recruiter_id"
         " LEFT JOIN workplaces w ON w.id = e.workplace_id ORDER BY e.start_date DESC, e.id DESC"
     )
+    cards = [hr.newcomer_card(e) for e in employees]
+    total = len(cards)
+    needle = q.strip().lower()
+    if needle:
+        cards = [c for c in cards if needle in c["employee"]["full_name"].lower()]
+    if workplace.isdigit():
+        cards = [c for c in cards if c["employee"]["workplace_id"] == int(workplace)]
+    if status:
+        cards = [c for c in cards if c["status"][2] == status]
+    return page(request, "index.html", cards=cards, total=total, q=q, workplace=workplace, picked=status,
+                workplaces=list_workplaces(), model_up=llm.is_up())
+
+
+@app.get("/employees/new")
+def new_employee_form(request: Request):
     recruiters = db.query("SELECT id, name FROM recruiters ORDER BY name")
     default_zone = cfg.DEFAULT_TZ if cfg.DEFAULT_TZ in TIMEZONES else "Europe/Moscow"
-    return page(request, "index.html", employees=employees, recruiters=recruiters, zones=TIMEZONES,
-                default_zone=default_zone, tags=known_tags(), model_up=llm.is_up(), workplaces=list_workplaces())
+    return page(request, "employee_new.html", recruiters=recruiters, zones=TIMEZONES, default_zone=default_zone,
+                tags=known_tags(), workplaces=list_workplaces())
 
 
 def list_workplaces():
@@ -216,9 +235,9 @@ def add_employee(request: Request, full_name: str = Form(""), first_name: str = 
         workplace = db.query_one("SELECT * FROM workplaces WHERE id = ?",
                                  (int(workplace_id),)) if workplace_id.strip().isdigit() else None
         if workplace is None:
-            return back(request, "/", "Такого места работы нет.", bad=True)
+            return back(request, "/employees/new", "Такого места работы нет.", bad=True)
     elif db.query_one("SELECT 1 FROM workplaces"):
-        return back(request, "/", "Выберите место работы: от него зависят теги, часовой пояс и рабочие часы.",
+        return back(request, "/employees/new", "Выберите место работы: от него зависят теги, часовой пояс и рабочие часы.",
                     bad=True)
     if workplace is not None:
         # the workplace brings its tags and zone; extra tags typed by HR are kept on top
@@ -240,16 +259,16 @@ def add_employee(request: Request, full_name: str = Form(""), first_name: str = 
     recruiter_id = recruiter_id.strip()
 
     if not names or len(full_name) > MAX_NAME:
-        return back(request, "/", "Впишите ФИО, не длиннее 200 знаков.", bad=True)
+        return back(request, "/employees/new", "Впишите ФИО, не длиннее 200 знаков.", bad=True)
     if start is None or not 2020 <= start.year <= 2100:
-        return back(request, "/", "Дата выхода нужна в виде год-месяц-день, например 2026-11-02.", bad=True)
+        return back(request, "/employees/new", "Дата выхода нужна в виде год-месяц-день, например 2026-11-02.", bad=True)
     if tz not in TIMEZONES:
-        return back(request, "/", "Выберите часовой пояс из списка.", bad=True)
+        return back(request, "/employees/new", "Выберите часовой пояс из списка.", bad=True)
     if len(tags) > MAX_NAME or len(first_name) > MAX_NAME:
-        return back(request, "/", "Теги и имя слишком длинные.", bad=True)
+        return back(request, "/employees/new", "Теги и имя слишком длинные.", bad=True)
     if recruiter_id and not (recruiter_id.isdigit()
                              and db.query_one("SELECT 1 FROM recruiters WHERE id = ?", (int(recruiter_id),))):
-        return back(request, "/", "Такого рекрутера нет.", bad=True)
+        return back(request, "/employees/new", "Такого рекрутера нет.", bad=True)
 
     # «Фамилия Имя Отчество»: the name to address is the second word unless HR typed it separately
     first_name = first_name.strip() or (names[1] if len(names) > 1 else names[0])
@@ -259,11 +278,11 @@ def add_employee(request: Request, full_name: str = Form(""), first_name: str = 
         (full_name, first_name, start.isoformat(), tz, tags, int(recruiter_id) if recruiter_id else None,
          secrets.token_hex(8), db.now_iso(), workplace["id"] if workplace else None),
     )
-    return back(request, f"/employees/{employee_id}", "Новичок добавлен. Отправьте ему ссылку или QR.")
+    return back(request, f"/employees/{employee_id}?new=1", "Новичок добавлен.")
 
 
 @app.get("/employees/{employee_id}")
-def employee_card(request: Request, employee_id: int):
+def employee_card(request: Request, employee_id: int, new: str = ""):
     employee = db.query_one(
         "SELECT e.*, r.name AS recruiter_name, w.name AS workplace_name FROM employees e"
         " LEFT JOIN recruiters r ON r.id = e.recruiter_id LEFT JOIN workplaces w ON w.id = e.workplace_id"
@@ -283,7 +302,13 @@ def employee_card(request: Request, employee_id: int):
                 steps=steps, titles=titles, messages=messages, answers=answers, flags=flags, demo=cfg.DEMO_MODE,
                 employee_now=now.strftime("%d.%m.%Y %H:%M"), workplaces=list_workplaces(),
                 recruiters=db.query("SELECT id, name FROM recruiters ORDER BY name"),
-                schedule=schedule.describe() if schedule else "", late=engine.is_late(employee))
+                schedule=schedule.describe() if schedule else "", late=engine.is_late(employee), new=bool(new),
+                card=hr.newcomer_card(db.query_one(
+                    "SELECT e.*, (SELECT COUNT(*) FROM escalations q WHERE q.employee_id = e.id AND q.status = 'open')"
+                    " AS open_questions, (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 2)"
+                    " AS red_flags, (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 1) AS worries"
+                    " FROM employees e WHERE e.id = ?", (employee_id,))),
+                opened=db.query("SELECT * FROM escalations WHERE employee_id = ? ORDER BY id DESC", (employee_id,)))
 
 
 @app.post("/employees/{employee_id}/move")
@@ -367,7 +392,7 @@ def add_recruiter(request: Request, name: str = Form(""), tz: str = Form("Europe
         "INSERT INTO recruiters (name, invite_code, created_at, timezone, work_days, work_start, work_end)"
         " VALUES (?, ?, ?, ?, ?, ?, ?)", (name, secrets.token_hex(8), db.now_iso(), *schedule))
     save_recruiter_workplaces(recruiter_id, workplaces)
-    return back(request, "/recruiters", "Рекрутер добавлен. Пусть откроет ссылку в МАКС.")
+    return back(request, f"/recruiters/{recruiter_id}", "Рекрутер добавлен. Пусть откроет ссылку ниже в МАКС.")
 
 
 def save_recruiter_workplaces(recruiter_id: int, workplaces: list[str]) -> None:
@@ -444,7 +469,9 @@ def save_workplace(request: Request, workplace_id: str = Form(""), name: str = F
     schedule, problem = read_schedule(tz, days, work_start, work_end)
     if schedule is None:
         return back(request, "/workplaces", problem, bad=True)
-    same = db.query_one("SELECT id FROM workplaces WHERE lower(name) = lower(?)", (name,))
+    # sqlite lower() knows only Latin letters, «Завод» and «завод» are compared here
+    same = next((row for row in db.query("SELECT id, name FROM workplaces") if row["name"].casefold() == name.casefold()),
+                None)
     if workplace_id.isdigit():
         if same and same["id"] != int(workplace_id):
             return back(request, "/workplaces", "Место работы с таким названием уже есть.", bad=True)

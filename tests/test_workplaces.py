@@ -326,9 +326,10 @@ def test_cabinet_shows_questions_by_workplace_with_red_banner(admin):
 
     page = admin.get("/questions").text
 
-    assert page.index("Завод GrPP: 1") < page.index("Где парковка?") < page.index("Завод GTP: 1")
-    assert "Вопросов ждут ответа слишком долго: 2" in page  # both have no recruiter at all
-    assert "рекрутер не назначен" in page
+    assert page.index(">Завод GrPP<") < page.index("Где парковка?") < page.index(">Завод GTP<")
+    # both have no recruiter at all; the red banner is on every other page, the questions page shows them itself
+    assert "Вопросы ждут ответа слишком долго: 2" in admin.get("/dashboard").text
+    assert "Рекрутер не назначен" in page
 
 
 def test_cabinet_send_now_button_for_a_waiting_answer(admin, outbox, clock):
@@ -338,7 +339,7 @@ def test_cabinet_send_now_button_for_a_waiting_answer(admin, outbox, clock):
     run(hr.deliver_answer(escalation, "Ответ", "Ольга", employee_id, question(escalation)["created_at"]))
 
     page = admin.get("/questions").text
-    assert "Ответы ждут рабочего времени новичка" in page and "пн 09.11 в 09:00" in page
+    assert "Ждут рабочего времени новичка" in page and "пн 09.11 в 09:00" in page
     assert admin.post(f"/questions/{escalation}/send-now").status_code == 303
     assert len(outbox) == 1
 

@@ -1,34 +1,43 @@
+{% from "_ui.html" import icon, sprite %}
 <!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Кабинет HR{% endblock %} | Корсик</title>
+<title>{% block title %}Кабинет HR{% endblock %} · Корсик</title>
 <link rel="stylesheet" href="{{ css }}">
 <link rel="icon" href="/static/favicon.png">
 </head>
 <body>
-<div class="page">
+{{ sprite() }}
 {% if request.session.get("admin") %}
 {% set here = request.url.path %}
-<header class="top">
-  <a class="logo" href="/dashboard"><img src="/static/logo_gradient.svg" alt="Корсик" width="90" height="28"></a>
-  <nav>
-    {% for url, name in [("/dashboard", "Дашборд"), ("/", "Новички"), ("/recruiters", "Рекрутеры"), ("/workplaces", "Места работы"), ("/questions", "Вопросы"), ("/knowledge", "Документы"), ("/scenario", "Сценарий")] %}
-    <a href="{{ url }}"{% if here == url or (url != "/" and here.startswith(url)) or (url == "/" and here.startswith("/employees")) %} aria-current="page"{% endif %}>{{ name }}{% if url == "/questions" and open_questions() %}<span class="count">{{ open_questions() }}</span>{% endif %}</a>
-    {% endfor %}
-    <a href="/export.xlsx">Excel</a>
-    <form method="post" action="/logout"><button class="secondary compact">Выйти</button></form>
-  </nav>
-</header>
-{% set late_questions = overdue_questions() %}
-{% if late_questions %}
-<p class="alert"><span>Вопросов ждут ответа слишком долго: {{ late_questions }}. Рекрутер не отвечает или сейчас не работает.</span> <a href="/questions">Открыть вопросы</a></p>
-{% endif %}
-{% endif %}
-{% if flash %}<p class="flash{% if flash.bad %} bad{% endif %}">{{ flash.text }}</p>{% endif %}
-{% block content %}{% endblock %}
-{% if request.session.get("admin") %}<p class="muted caption footer">Время на страницах: {{ tz_name }}</p>{% endif %}
+<div class="shell">
+  <aside class="side">
+    <a class="brand" href="/dashboard"><img src="/static/logo_gradient.svg" alt="Корсик" width="84" height="26"></a>
+    <nav class="menu" aria-label="Разделы">
+      {% for url, name, ic in [("/dashboard", "Дашборд", "dashboard"), ("/", "Новички", "users"), ("/questions", "Вопросы", "message"), ("/recruiters", "Рекрутеры", "recruiter"), ("/workplaces", "Места работы", "building"), ("/knowledge", "Документы", "file"), ("/scenario", "Сценарий", "list")] %}
+      <a href="{{ url }}"{% if here == url or (url != "/" and here.startswith(url)) or (url == "/" and here.startswith("/employees")) %} aria-current="page"{% endif %}>{{ icon(ic) }}{{ name }}
+        {% if url == "/questions" and open_questions() %}<span class="badge{% if overdue_questions() %} bad{% endif %}">{{ open_questions() }}</span>{% endif %}</a>
+      {% endfor %}
+      <a href="/export.xlsx">{{ icon("download") }}Отчёт Excel</a>
+    </nav>
+    <div class="side-foot">
+      <form method="post" action="/logout"><button class="btn ghost">{{ icon("logout", "sm") }}Выйти</button></form>
+    </div>
+  </aside>
+  <main class="main">
+    {% set late_questions = overdue_questions() %}
+    {% if late_questions and not here.startswith("/questions") %}
+    <div class="notice bad flash"><b>Вопросы ждут ответа слишком долго: {{ late_questions }}</b>Рекрутер не отвечает или сейчас не работает. <a href="/questions">Открыть вопросы</a></div>
+    {% endif %}
+    {% if flash %}<div class="notice flash {% if flash.bad %}bad{% else %}ok{% endif %}">{{ flash.text }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
 </div>
+{% else %}
+{% if flash %}<div class="notice flash {% if flash.bad %}bad{% else %}ok{% endif %}">{{ flash.text }}</div>{% endif %}
+{% block public %}{% endblock %}
+{% endif %}
 </body>
 </html>

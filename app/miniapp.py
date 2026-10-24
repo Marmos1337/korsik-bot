@@ -47,6 +47,7 @@ def local_time(stamp: str | None, tz: str | None = None) -> str:
 
 
 templates.filters["local"] = local_time
+templates.filters["initials"] = lambda name: "".join(w[0] for w in (name or "").split() if w[0].isalpha())[:2].upper() or "?"
 # the file's hash in the address: browsers keep static files for a day, a new version must not wait for that
 CSS_URL = "/static/korsik.css?v=" + hashlib.sha256(
     (Path(__file__).parent / "static" / "korsik.css").read_bytes()).hexdigest()[:10]
@@ -210,11 +211,12 @@ def recruiter_part(recruiter) -> dict:
     workplaces = db.query("SELECT * FROM workplaces ORDER BY name")
     employees = db.query(
         "SELECT e.*, (SELECT COUNT(*) FROM sent_steps s WHERE s.employee_id = e.id AND s.status != 'skipped')"
-        " AS steps_sent FROM employees e WHERE e.recruiter_id = ? ORDER BY e.start_date DESC, e.id DESC",
-        (recruiter["id"],))
+        " AS steps_sent," + hr.CARD_COUNTS + " FROM employees e WHERE e.recruiter_id = ?"
+        " ORDER BY e.start_date DESC, e.id DESC", (recruiter["id"],))
     newcomers = [{
         "employee": e,
         "workplace": next((w["name"] for w in workplaces if w["id"] == e["workplace_id"]), ""),
+        "card": hr.newcomer_card(e),
         "stage": hr._stage(e),
         "flags": db.query("SELECT * FROM pulse WHERE employee_id = ? AND risk >= 1 ORDER BY id DESC LIMIT 3",
                           (e["id"],)),

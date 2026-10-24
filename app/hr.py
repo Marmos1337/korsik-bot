@@ -619,6 +619,56 @@ def digest_text(recruiter_id: int) -> str:
     return "\n".join(lines)
 
 
+CARD_COUNTS = (
+    " (SELECT COUNT(*) FROM escalations q WHERE q.employee_id = e.id AND q.status = 'open') AS open_questions,"
+    " (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 2) AS red_flags,"
+    " (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 1) AS worries"
+)
+
+
+STATUSES = {"attention": "Нужно внимание", "flag": "Красный флаг", "progress": "В процессе",
+            "before": "Ждёт выхода", "not_linked": "Ссылка не открыта", "done": "Адаптация пройдена"}
+
+
+def newcomer_card(employee) -> dict:
+    """What a newcomer card shows: where, which day, and one status in words.
+
+    The row needs open_questions, red_flags and worries counted, see CARD_COUNTS.
+    """
+    stage, day = phase(employee)
+    if employee["red_flags"]:
+        status = ("Красный флаг", "bad", "flag")
+    elif stage == "not_linked":
+        status = ("Ссылка не открыта", "plain", "not_linked")
+    elif employee["open_questions"] or employee["worries"]:
+        status = ("Нужно внимание", "warn", "attention")
+    elif stage == "before":
+        status = ("Ждёт выхода", "", "before")
+    elif stage == "done":
+        status = ("Адаптация пройдена", "ok", "done")
+    else:
+        status = ("В процессе", "", "progress")
+    if stage == "before":
+        when = f"выход {date.fromisoformat(employee['start_date']):%d.%m}"
+    elif day:
+        when = f"день {day}"
+    else:
+        when = f"выход {date.fromisoformat(employee['start_date']):%d.%m}"
+    return {"employee": employee, "status": status, "when": when}
+
+
+def phase(employee) -> tuple[str, int | None]:
+    """not_linked, before, onboarding or done, with the working day number counted from the first day."""
+    if not employee["max_user_id"]:
+        return "not_linked", None
+    today = engine.employee_now(employee).astimezone(ZoneInfo(employee["timezone"])).date()
+    start = date.fromisoformat(employee["start_date"])
+    if today < start:
+        return "before", None
+    months = (today.year - start.year) * 12 + today.month - start.month - (today.day < start.day)
+    return ("done" if months >= cfg.PROBATION_MONTHS else "onboarding"), (today - start).days + 1
+
+
 def _stage(employee) -> str:
     if not employee["max_user_id"]:
         return "ссылка ещё не открыта"
