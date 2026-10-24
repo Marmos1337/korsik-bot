@@ -25,6 +25,13 @@ def fake_max(monkeypatch):
     return seen, responses
 
 
+def test_demo_accounts_with_negative_ids_get_nothing_from_max(fake_max):
+    seen, _ = fake_max
+    assert asyncio.run(max_api.send_message("Привет", user_id=-9300)) == {}
+    asyncio.run(max_api.send_message("Сводка", chat_id=-100))
+    assert [r.url.params.get("chat_id") for r in seen] == ["-100"]
+
+
 def test_send_message_with_keyboard_and_image(fake_max):
     seen, _ = fake_max
     buttons = [

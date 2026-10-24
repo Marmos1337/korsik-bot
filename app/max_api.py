@@ -65,6 +65,9 @@ async def send_message(
     buttons: list[list[dict]] | None = None,
     image_token: str | None = None,
 ) -> dict:
+    if user_id is not None and user_id < 0:
+        # MAX user ids are positive; negative ones belong to demo people from the test fill and live only in the cabinet
+        return {}
     if user_id is not None:
         params = {"user_id": user_id}
     elif chat_id is not None:
