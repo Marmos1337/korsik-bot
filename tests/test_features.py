@@ -394,6 +394,17 @@ def test_lessons_seed_once_and_a_right_answer_passes(clock, outbox, lessons):
     assert anna_tasks(people["anna"])["Пройти обучение в приложении"]["done_at"]
 
 
+def test_new_seed_lessons_are_added_and_deleted_ones_stay_deleted(lessons):
+    learning.SEED.write_text(json.dumps([
+        {"title": "Рабочее время", "body": "С 9 до 18"},
+        {"title": "Подарки", "body": "Не дороже трёх тысяч"},
+        {"title": "Отпуск", "body": "28 календарных дней"},
+    ], ensure_ascii=False), encoding="utf-8")
+    db.execute("DELETE FROM lessons WHERE title = 'Подарки'")
+    learning.seed()
+    assert [r["title"] for r in learning.all_lessons()] == ["Рабочее время", "Отпуск"]
+
+
 def test_hr_edits_lessons_in_the_cabinet(clock, admin, lessons):
     assert "Рабочее время" in admin.get("/learning").text
     response = admin.post("/learning", data={"title": "Пропуск", "body": "Пропуск выдаёт охрана", "question": "Кто?",

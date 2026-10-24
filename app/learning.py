@@ -15,13 +15,26 @@ TASK_MARK = "обучение"
 
 
 def seed() -> None:
-    """The first start fills the lessons from scenario/learning.json; after that HR edits them in the cabinet."""
-    if db.query_one("SELECT 1 FROM lessons") or not SEED.is_file():
+    """Adds lessons from scenario/learning.json that were never added before; after that HR edits them in the cabinet."""
+    if not SEED.is_file():
         return
-    for position, item in enumerate(json.loads(SEED.read_text(encoding="utf-8"))):
+    # titles once added are remembered, so a lesson HR deleted or renamed does not come back on the next start;
+    # a base filled before this list existed counts its current lessons as added
+    known = db.kv_get("lessons_seeded")
+    seeded = set(json.loads(known)) if known else {r["title"] for r in all_lessons()}
+    position = len(all_lessons())
+    added = 0
+    for item in json.loads(SEED.read_text(encoding="utf-8")):
+        if item["title"] in seeded:
+            continue
         save(None, item["title"], item["body"], item.get("source", ""), item.get("tags", ""), position,
              item.get("question", ""), item.get("options", []), item.get("correct", 0))
-    log.info("lessons seeded from %s", SEED.name)
+        seeded.add(item["title"])
+        position += 1
+        added += 1
+    db.kv_set("lessons_seeded", json.dumps(sorted(seeded), ensure_ascii=False))
+    if added:
+        log.info("lessons added from %s: %d", SEED.name, added)
 
 
 def save(lesson_id: int | None, title: str, body: str, source: str, tags: str, position: int, question: str,

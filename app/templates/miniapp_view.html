@@ -125,7 +125,7 @@
 <section class="section">
   <h2 class="section-title">{% if ty %}Твои{% else %}Ваши{% endif %} задачи</h2>
   {% if my_tasks %}
-  <div class="card">
+  <div class="tasks">
     {% for t in my_tasks %}
     <form method="post" action="/app/task/{{ t.id }}" class="task{% if t.done_at %} done{% elif is_overdue(t, my_now) %} late{% endif %}">
       <input type="hidden" name="done" value="{{ '0' if t.done_at else '1' }}">
@@ -146,11 +146,11 @@
   <div class="card">
     <p><b>Пройдено {{ lessons_done }} из {{ lessons|length }}</b></p>
     <div class="progress"><span style="width: {{ ((lessons_done * 100 / lessons|length) if lessons else 0)|round|int }}%"></span></div>
-    <p class="small muted">Правила распорядка и охрана труда коротко. В конце каждого урока один вопрос.</p>
+    <p class="small muted">Главные правила компании коротко. В конце каждого урока один вопрос.</p>
   </div>
   {% for item in lessons %}{% set l = item.lesson %}
   <details class="card lesson{% if item.done %} passed{% endif %}"{% if open_lesson == l.id or (not open_lesson and not item.done and loop.index0 == lessons|selectattr("done")|list|length) %} open{% endif %}>
-    <summary class="stack"><div class="row between"><b>{{ loop.index }}. {{ l.title }}</b>{% if item.done %}<span class="chip ok">{{ check() }}пройден</span>{% endif %}</div></summary>
+    <summary class="line"><b>{{ loop.index }}. {{ l.title }}</b>{% if item.done %}<span class="chip ok">{{ check() }}пройден</span>{% endif %}</summary>
     <div class="stack">
       <p class="small text">{{ l.body }}</p>
       {% if l.source %}<p class="caption">Источник: {{ l.source }}</p>{% endif %}
@@ -172,7 +172,7 @@
   <h2 class="section-title">{% if ty %}Твои{% else %}Ваши{% endif %} вопросы к HR</h2>
   {% for q in my_questions %}
   <div class="card">
-    <div class="row between"><span class="caption">{{ q.created_at|local(employee.timezone) }}</span>
+    <div class="line"><span class="caption">{{ q.created_at|local(employee.timezone) }}</span>
       {% if q.status == "answered" and q.delivered_at %}<span class="chip ok">есть ответ</span>{% else %}<span class="chip warn">ждёт ответа</span>{% endif %}</div>
     <p class="text"><b>{{ q.question }}</b></p>
     {% if q.status == "answered" and q.delivered_at %}<p class="small text">Ответ: {{ q.answer }}</p>{% endif %}
@@ -201,9 +201,16 @@
   {% endif %}
 </section>
 
-<form method="post" action="/app/talk" class="talk">
-  <button class="talk-btn"><b>{% if ty %}Тебе тяжело?{% else %}Вам тяжело?{% endif %}</b><span>{% if ty %}Нажми, и я выслушаю, а рекрутер напишет лично{% else %}Нажмите, и я выслушаю, а рекрутер напишет лично{% endif %}</span></button>
-</form>
+<details class="talk">
+  <summary class="talk-btn"><b>{% if ty %}Тебе тяжело?{% else %}Вам тяжело?{% endif %}</b><span>Можно выговориться, а рекрутер напишет лично</span></summary>
+  <div class="talk-confirm">
+    <p class="small">{% if ty %}Позвать рекрутера, чтобы написал тебе лично? А я пока выслушаю.{% else %}Позвать рекрутера, чтобы написал вам лично? А я пока выслушаю.{% endif %}</p>
+    <div class="grid-2x">
+      <form method="post" action="/app/view"><input type="hidden" name="tab" value="home"><button class="btn secondary">Не сейчас</button></form>
+      <form method="post" action="/app/talk"><button class="btn">Да, позвать</button></form>
+    </div>
+  </div>
+</details>
 
 <section class="section">
   <h2 class="section-title">Коротко</h2>
