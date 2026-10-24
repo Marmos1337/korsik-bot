@@ -16,7 +16,8 @@
   <div class="kpi{% if late %} alarm{% endif %}"><b>{{ late|length }}</b><span>просрочено</span></div>
   <div class="kpi{% if red %} alarm{% endif %}"><b>{{ red|length }}</b><span>красных флагов за неделю</span></div>
   <div class="kpi{% if overdue_tasks %} alarm{% endif %}"><b>{{ overdue_tasks }}</b><span>задач просрочено</span></div>
-  <div class="kpi"><b>{% if ratings.share is not none %}{{ ratings.share }}%{% else %}нет{% endif %}</b><span>ответов бота помогли{% if ratings.rated %}, оценок {{ ratings.rated }}{% endif %}</span></div>
+  {% if ratings.share is not none %}<div class="kpi"><b>{{ ratings.share }}%</b><span>ответов бота помогли, оценок {{ ratings.rated }}</span></div>
+  {% else %}<div class="kpi"><b>0</b><span>оценок ответов бота за месяц</span></div>{% endif %}
 </div>
 
 {% if at_risk %}

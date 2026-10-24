@@ -9,8 +9,8 @@
   <div class="grid">
     {% for m in managers %}
     <div class="card">
-      <div class="person"><span class="avatar">{{ m.name|initials }}</span><div class="tight grow"><div class="name">{{ m.name }}</div><div class="meta">новичков: {{ m.employees }}</div></div>
-        {% if m.max_user_id %}<span class="chip ok">МАКС привязан</span>{% else %}<span class="chip bad">МАКС не привязан</span>{% endif %}</div>
+      <div class="person"><span class="avatar">{{ m.name|initials }}</span><div class="tight grow"><div class="name">{{ m.name }}</div><div class="meta">новичков: {{ m.employees }}</div></div></div>
+      <div class="chips">{% if m.max_user_id %}<span class="chip ok">МАКС привязан</span>{% else %}<span class="chip bad">МАКС не привязан</span>{% endif %}</div>
       {% if not m.max_user_id and links[m.id] %}
       <details><summary class="disclose">Ссылка для привязки</summary>
         <div class="stack"><img class="qr" src="/managers/{{ m.id }}/qr.png" alt="QR-код ссылки руководителя" width="200" height="200"><p class="linkbox">{{ links[m.id] }}</p></div>

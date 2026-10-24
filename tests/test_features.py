@@ -495,3 +495,11 @@ def test_talk_button_in_the_app(clock, outbox, app_client):
     r = app_client.post("/app/talk", data={"init_data": sign(fields_for(500))})
     assert "Я написал тебе в чат" in r.text
     assert any("новичку тяжело" in m["text"] for m in to(outbox, 700))
+
+
+def test_newcomer_far_into_the_probation_gets_no_tasks_whose_time_is_gone(clock, outbox):
+    people = team(clock)
+    db.execute("DELETE FROM tasks")
+    clock.now = datetime(2026, 11, 20, 8, 0, tzinfo=UTC)
+    run(engine.advance(people["anna"]))
+    assert tasks.of_employee(people["anna"]) == []

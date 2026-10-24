@@ -240,6 +240,8 @@ def _sync_tasks(employee) -> None:
         if at is not None and _plan(employee, step, at) == "skip":
             continue  # a late newcomer does not need to collect documents for a day already gone
         due = _due_at(employee, dataclasses.replace(step, when=step.task_due)) if step.task_due else at
+        if due is not None and due < employee_now(employee) - LATE_LIMIT:
+            continue  # the moment is long gone: asking about first-day documents in week three only annoys
         tasks.add_from_step(employee["id"], step.id, step.task, step.task_check, due)
 
 
