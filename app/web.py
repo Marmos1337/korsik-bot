@@ -7,7 +7,7 @@ import os
 import secrets
 import shutil
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -22,7 +22,7 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 
-from app import db, engine, hr, knowledge, llm, miniapp
+from app import db, engine, hours, hr, knowledge, llm, miniapp
 from app.config import cfg
 from app.scenario import ScenarioError, Step, load_scenario, validate_scenario
 
@@ -46,21 +46,7 @@ SECURITY_HEADERS = {
 }
 # the MAX mini app runs MAX's bridge script and its own one, and lives inside a MAX frame
 MINIAPP_HEADERS = SECURITY_HEADERS | {"Content-Security-Policy": miniapp.POLICY}
-# Russian time zones, west to east; offsets never change because Russia has no summer time
-TIMEZONES = {
-    "Europe/Kaliningrad": "Калининград (UTC+2)",
-    "Europe/Moscow": "Москва, Санкт-Петербург (UTC+3)",
-    "Europe/Samara": "Самара (UTC+4)",
-    "Asia/Yekaterinburg": "Екатеринбург (UTC+5)",
-    "Asia/Omsk": "Омск (UTC+6)",
-    "Asia/Novosibirsk": "Новосибирск (UTC+7)",
-    "Asia/Krasnoyarsk": "Красноярск (UTC+7)",
-    "Asia/Irkutsk": "Иркутск (UTC+8)",
-    "Asia/Yakutsk": "Якутск (UTC+9)",
-    "Asia/Vladivostok": "Владивосток (UTC+10)",
-    "Asia/Magadan": "Магадан (UTC+11)",
-    "Asia/Kamchatka": "Камчатка (UTC+12)",
-}
+TIMEZONES = hours.TIMEZONES
 
 # the admin is plain HTML pages, an auto-generated API page would only show the routes to strangers
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -87,6 +73,9 @@ templates.env.filters["zone"] = lambda name: TIMEZONES.get(name, name)
 templates.env.globals["tz_name"] = cfg.DEFAULT_TZ
 templates.env.globals["open_questions"] = lambda: db.query_one(
     "SELECT COUNT(*) AS n FROM escalations WHERE status = 'open'")["n"]
+templates.env.globals["overdue_questions"] = hr.overdue_count
+templates.env.globals["day_names"] = hours.DAY_NAMES
+templates.env.filters["schedule"] = lambda row: hours.from_row(row).describe()
 
 
 @app.middleware("http")
@@ -171,16 +160,29 @@ def logout(request: Request):
 @app.get("/")
 def index(request: Request):
     employees = db.query(
-        "SELECT e.*, r.name AS recruiter_name,"
+        "SELECT e.*, r.name AS recruiter_name, w.name AS workplace_name,"
         " (SELECT COUNT(*) FROM sent_steps s WHERE s.employee_id = e.id AND s.status != 'skipped') AS steps_sent,"
         " (SELECT COUNT(*) FROM escalations q WHERE q.employee_id = e.id AND q.status = 'open') AS open_questions,"
         " (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 2) AS red_flags"
-        " FROM employees e LEFT JOIN recruiters r ON r.id = e.recruiter_id ORDER BY e.start_date DESC, e.id DESC"
+        " FROM employees e LEFT JOIN recruiters r ON r.id = e.recruiter_id"
+        " LEFT JOIN workplaces w ON w.id = e.workplace_id ORDER BY e.start_date DESC, e.id DESC"
     )
     recruiters = db.query("SELECT id, name FROM recruiters ORDER BY name")
     default_zone = cfg.DEFAULT_TZ if cfg.DEFAULT_TZ in TIMEZONES else "Europe/Moscow"
     return page(request, "index.html", employees=employees, recruiters=recruiters, zones=TIMEZONES,
-                default_zone=default_zone, tags=known_tags(), model_up=llm.is_up())
+                default_zone=default_zone, tags=known_tags(), model_up=llm.is_up(), workplaces=list_workplaces())
+
+
+def list_workplaces():
+    return db.query(
+        "SELECT w.*, (SELECT COUNT(*) FROM employees e WHERE e.workplace_id = w.id) AS employees,"
+        " (SELECT group_concat(r.name, ', ') FROM recruiter_workplaces rw JOIN recruiters r ON r.id = rw.recruiter_id"
+        "  WHERE rw.workplace_id = w.id) AS recruiter_names"
+        " FROM workplaces w ORDER BY w.name")
+
+
+def read_schedule(tz: str, days: list[str], start: str, end: str) -> tuple[tuple | None, str]:
+    return hours.read_form(tz, days, start, end)
 
 
 def known_tags() -> list[str]:
@@ -197,8 +199,29 @@ def known_tags() -> list[str]:
 
 @app.post("/employees")
 def add_employee(request: Request, full_name: str = Form(""), first_name: str = Form(""), start_date: str = Form(""),
-                 tz: str = Form("", alias="timezone"), tags: str = Form(""), recruiter_id: str = Form("")):
+                 tz: str = Form("", alias="timezone"), tags: str = Form(""), recruiter_id: str = Form(""),
+                 workplace_id: str = Form("")):
     full_name = " ".join(full_name.split())
+    workplace = None
+    if workplace_id.strip():
+        workplace = db.query_one("SELECT * FROM workplaces WHERE id = ?",
+                                 (int(workplace_id),)) if workplace_id.strip().isdigit() else None
+        if workplace is None:
+            return back(request, "/", "Такого места работы нет.", bad=True)
+    elif db.query_one("SELECT 1 FROM workplaces"):
+        return back(request, "/", "Выберите место работы: от него зависят теги, часовой пояс и рабочие часы.",
+                    bad=True)
+    if workplace is not None:
+        # the workplace brings its tags and zone; extra tags typed by HR are kept on top
+        if tz in ("", "workplace"):
+            tz = workplace["timezone"]
+        extra = [t for t in db.split_tags(tags) if t.lower() not in {w.lower() for w in db.split_tags(workplace["tags"])}]
+        tags = ", ".join(db.split_tags(workplace["tags"]) + extra)
+        if not recruiter_id.strip():
+            # the first recruiter who covers this workplace takes the newcomer
+            owner = db.query_one("SELECT recruiter_id FROM recruiter_workplaces WHERE workplace_id = ?"
+                                 " ORDER BY recruiter_id LIMIT 1", (workplace["id"],))
+            recruiter_id = str(owner["recruiter_id"]) if owner else ""
     names = full_name.split()
     tags = ", ".join(db.split_tags(tags))
     try:
@@ -223,9 +246,9 @@ def add_employee(request: Request, full_name: str = Form(""), first_name: str = 
     first_name = first_name.strip() or (names[1] if len(names) > 1 else names[0])
     employee_id = db.execute(
         "INSERT INTO employees (full_name, first_name, start_date, timezone, tags, recruiter_id, invite_code,"
-        " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " created_at, workplace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (full_name, first_name, start.isoformat(), tz, tags, int(recruiter_id) if recruiter_id else None,
-         secrets.token_hex(8), db.now_iso()),
+         secrets.token_hex(8), db.now_iso(), workplace["id"] if workplace else None),
     )
     return back(request, f"/employees/{employee_id}", "Новичок добавлен. Отправьте ему ссылку или QR.")
 
@@ -233,10 +256,12 @@ def add_employee(request: Request, full_name: str = Form(""), first_name: str = 
 @app.get("/employees/{employee_id}")
 def employee_card(request: Request, employee_id: int):
     employee = db.query_one(
-        "SELECT e.*, r.name AS recruiter_name FROM employees e LEFT JOIN recruiters r ON r.id = e.recruiter_id"
+        "SELECT e.*, r.name AS recruiter_name, w.name AS workplace_name FROM employees e"
+        " LEFT JOIN recruiters r ON r.id = e.recruiter_id LEFT JOIN workplaces w ON w.id = e.workplace_id"
         " WHERE e.id = ?", (employee_id,))
     if employee is None:
         raise HTTPException(404)
+    schedule = hours.of_employee(employee)
     steps = db.query("SELECT * FROM sent_steps WHERE employee_id = ? ORDER BY sent_at, rowid", (employee_id,))
     titles = {step.id: step.text_ty for step in read_scenario()[0]}
     # the newest 300 are enough to follow a dialogue, three months of chat would make the page heavy
@@ -247,7 +272,29 @@ def employee_card(request: Request, employee_id: int):
     now = engine.employee_now(employee).astimezone(ZoneInfo(employee["timezone"]))
     return page(request, "employee.html", employee=employee, link=engine.invite_link(employee["invite_code"]),
                 steps=steps, titles=titles, messages=messages, answers=answers, flags=flags, demo=cfg.DEMO_MODE,
-                employee_now=now.strftime("%d.%m.%Y %H:%M"))
+                employee_now=now.strftime("%d.%m.%Y %H:%M"), workplaces=list_workplaces(),
+                recruiters=db.query("SELECT id, name FROM recruiters ORDER BY name"),
+                schedule=schedule.describe() if schedule else "", late=engine.is_late(employee))
+
+
+@app.post("/employees/{employee_id}/move")
+def move_employee(request: Request, employee_id: int, workplace_id: str = Form(""), recruiter_id: str = Form("")):
+    url = f"/employees/{employee_id}"
+    employee = db.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
+    if employee is None:
+        raise HTTPException(404)
+    if workplace_id and not (workplace_id.isdigit()
+                             and db.query_one("SELECT 1 FROM workplaces WHERE id = ?", (int(workplace_id),))):
+        return back(request, url, "Такого места работы нет.", bad=True)
+    if recruiter_id and not (recruiter_id.isdigit()
+                             and db.query_one("SELECT 1 FROM recruiters WHERE id = ?", (int(recruiter_id),))):
+        return back(request, url, "Такого рекрутера нет.", bad=True)
+    new_workplace = int(workplace_id) if workplace_id else None
+    if new_workplace != employee["workplace_id"]:
+        hr.change_workplace(employee_id, new_workplace)
+    db.execute("UPDATE employees SET recruiter_id = ? WHERE id = ?",
+               (int(recruiter_id) if recruiter_id else None, employee_id))
+    return back(request, url, "Сохранено. Следующие шаги и ответы пойдут по новому месту работы.")
 
 
 @app.post("/employees/{employee_id}/next")
@@ -284,21 +331,189 @@ def qr_response(link: str | None) -> Response:
 @app.get("/recruiters")
 def recruiters_page(request: Request):
     rows = db.query(
-        "SELECT r.*, (SELECT COUNT(*) FROM employees e WHERE e.recruiter_id = r.id) AS employees"
+        "SELECT r.*, (SELECT COUNT(*) FROM employees e WHERE e.recruiter_id = r.id) AS employees,"
+        " (SELECT group_concat(w.name, ', ') FROM recruiter_workplaces rw JOIN workplaces w ON w.id = rw.workplace_id"
+        "  WHERE rw.recruiter_id = r.id) AS workplace_names"
         " FROM recruiters r ORDER BY r.id"
     )
     links = {row["id"]: engine.invite_link("hr_" + row["invite_code"]) for row in rows}
-    return page(request, "recruiters.html", recruiters=rows, links=links)
+    now = datetime.now(ZoneInfo("UTC"))
+    working = {row["id"]: hours.of_recruiter(row).is_open(now, engine.holidays()) for row in rows}
+    stats = {row["id"]: hr.recruiter_stats(row["id"]) for row in rows}
+    return page(request, "recruiters.html", recruiters=rows, links=links, working=working, stats=stats,
+                zones=TIMEZONES, workplaces=list_workplaces(), default_zone=cfg.DEFAULT_TZ)
 
 
 @app.post("/recruiters")
-def add_recruiter(request: Request, name: str = Form("")):
+def add_recruiter(request: Request, name: str = Form(""), tz: str = Form("Europe/Moscow", alias="timezone"),
+                  days: list[str] = Form([]), work_start: str = Form("09:00"), work_end: str = Form("18:00"),
+                  workplaces: list[str] = Form([])):
     name = " ".join(name.split())
     if not name or len(name) > MAX_NAME:
         return back(request, "/recruiters", "Впишите имя рекрутера.", bad=True)
-    db.execute("INSERT INTO recruiters (name, invite_code, created_at) VALUES (?, ?, ?)",
-               (name, secrets.token_hex(8), db.now_iso()))
+    schedule, problem = read_schedule(tz, days, work_start, work_end)
+    if schedule is None:
+        return back(request, "/recruiters", problem, bad=True)
+    recruiter_id = db.execute(
+        "INSERT INTO recruiters (name, invite_code, created_at, timezone, work_days, work_start, work_end)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)", (name, secrets.token_hex(8), db.now_iso(), *schedule))
+    save_recruiter_workplaces(recruiter_id, workplaces)
     return back(request, "/recruiters", "Рекрутер добавлен. Пусть откроет ссылку в МАКС.")
+
+
+def save_recruiter_workplaces(recruiter_id: int, workplaces: list[str]) -> None:
+    known = {row["id"] for row in db.query("SELECT id FROM workplaces")}
+    picked = {int(w) for w in workplaces if w.isdigit() and int(w) in known}
+    conn = db.connect()
+    try:
+        with conn:
+            conn.execute("DELETE FROM recruiter_workplaces WHERE recruiter_id = ?", (recruiter_id,))
+            conn.executemany("INSERT INTO recruiter_workplaces (recruiter_id, workplace_id) VALUES (?, ?)",
+                             [(recruiter_id, w) for w in sorted(picked)])
+    finally:
+        conn.close()
+
+
+@app.get("/recruiters/{recruiter_id}")
+def recruiter_card(request: Request, recruiter_id: int):
+    recruiter = db.query_one("SELECT * FROM recruiters WHERE id = ?", (recruiter_id,))
+    if recruiter is None:
+        raise HTTPException(404)
+    mine = {row["workplace_id"] for row in db.query(
+        "SELECT workplace_id FROM recruiter_workplaces WHERE recruiter_id = ?", (recruiter_id,))}
+    employees = db.query(
+        "SELECT e.*, w.name AS workplace_name FROM employees e LEFT JOIN workplaces w ON w.id = e.workplace_id"
+        " WHERE e.recruiter_id = ? ORDER BY e.start_date DESC", (recruiter_id,))
+    questions = db.query(
+        "SELECT q.*, e.full_name FROM escalations q JOIN employees e ON e.id = q.employee_id"
+        " WHERE e.recruiter_id = ? ORDER BY q.id DESC LIMIT 100", (recruiter_id,))
+    now = datetime.now(ZoneInfo("UTC"))
+    states = {q["id"]: hr.question_state(q, now) for q in questions if q["status"] == "open"}
+    took = {q["id"]: hours.waited_text(q["created_at"], datetime.fromisoformat(q["answered_at"]))
+            for q in questions if q["answered_at"]}
+    schedule = hours.of_recruiter(recruiter)
+    return page(request, "recruiter.html", recruiter=recruiter, stats=hr.recruiter_stats(recruiter_id),
+                employees=employees, questions=questions, states=states, took=took, zones=TIMEZONES,
+                workplaces=list_workplaces(), mine=mine, days=hours.parse_days(recruiter["work_days"]),
+                working=schedule.is_open(now, engine.holidays()), schedule=schedule.describe(),
+                link=engine.invite_link("hr_" + recruiter["invite_code"]))
+
+
+@app.post("/recruiters/{recruiter_id}")
+def update_recruiter(request: Request, recruiter_id: int, name: str = Form(""),
+                     tz: str = Form("Europe/Moscow", alias="timezone"), days: list[str] = Form([]),
+                     work_start: str = Form(""), work_end: str = Form(""), workplaces: list[str] = Form([])):
+    url = f"/recruiters/{recruiter_id}"
+    if db.query_one("SELECT 1 FROM recruiters WHERE id = ?", (recruiter_id,)) is None:
+        raise HTTPException(404)
+    name = " ".join(name.split())
+    if not name or len(name) > MAX_NAME:
+        return back(request, url, "Впишите имя рекрутера.", bad=True)
+    schedule, problem = read_schedule(tz, days, work_start, work_end)
+    if schedule is None:
+        return back(request, url, problem, bad=True)
+    db.execute("UPDATE recruiters SET name = ?, timezone = ?, work_days = ?, work_start = ?, work_end = ? WHERE id = ?",
+               (name, *schedule, recruiter_id))
+    save_recruiter_workplaces(recruiter_id, workplaces)
+    return back(request, url, "Сохранено.")
+
+
+@app.get("/workplaces")
+def workplaces_page(request: Request):
+    return page(request, "workplaces.html", workplaces=list_workplaces(), zones=TIMEZONES, tags=known_tags(),
+                default_zone=cfg.DEFAULT_TZ)
+
+
+@app.post("/workplaces")
+def save_workplace(request: Request, workplace_id: str = Form(""), name: str = Form(""), tags: str = Form(""),
+                   tz: str = Form("", alias="timezone"), days: list[str] = Form([]), work_start: str = Form(""),
+                   work_end: str = Form("")):
+    name = " ".join(name.split())
+    tags = ", ".join(db.split_tags(tags))
+    if not name or len(name) > MAX_NAME or len(tags) > MAX_NAME:
+        return back(request, "/workplaces", "Впишите название места работы, не длиннее 200 знаков.", bad=True)
+    schedule, problem = read_schedule(tz, days, work_start, work_end)
+    if schedule is None:
+        return back(request, "/workplaces", problem, bad=True)
+    same = db.query_one("SELECT id FROM workplaces WHERE lower(name) = lower(?)", (name,))
+    if workplace_id.isdigit():
+        if same and same["id"] != int(workplace_id):
+            return back(request, "/workplaces", "Место работы с таким названием уже есть.", bad=True)
+        old = db.query_one("SELECT * FROM workplaces WHERE id = ?", (int(workplace_id),))
+        if old is None:
+            raise HTTPException(404)
+        db.execute("UPDATE workplaces SET name = ?, tags = ?, timezone = ?, work_days = ?, work_start = ?,"
+                   " work_end = ? WHERE id = ?", (name, tags, *schedule, old["id"]))
+        if old["tags"] != tags or old["timezone"] != schedule[0]:
+            # newcomers of this workplace follow its new tags and zone; tags HR typed by hand for them stay
+            old_tags = {t.lower() for t in db.split_tags(old["tags"])}
+            for employee in db.query("SELECT * FROM employees WHERE workplace_id = ?", (old["id"],)):
+                own = [t for t in db.split_tags(employee["tags"]) if t.lower() not in old_tags]
+                merged = db.split_tags(tags) + [t for t in own if t.lower() not in {x.lower() for x in db.split_tags(tags)}]
+                db.execute("UPDATE employees SET tags = ?, timezone = ? WHERE id = ?",
+                           (", ".join(merged), schedule[0], employee["id"]))
+        return back(request, "/workplaces", "Место работы сохранено.")
+    if same:
+        return back(request, "/workplaces", "Место работы с таким названием уже есть.", bad=True)
+    db.execute("INSERT INTO workplaces (name, tags, timezone, work_days, work_start, work_end, created_at)"
+               " VALUES (?, ?, ?, ?, ?, ?, ?)", (name, tags, *schedule, db.now_iso()))
+    return back(request, "/workplaces", "Место работы добавлено.")
+
+
+@app.post("/workplaces/{workplace_id}/delete")
+def delete_workplace(request: Request, workplace_id: int):
+    if db.query_one("SELECT 1 FROM employees WHERE workplace_id = ?", (workplace_id,)):
+        return back(request, "/workplaces", "Здесь есть новички: сначала переведите их на другое место работы.",
+                    bad=True)
+    db.execute("DELETE FROM workplaces WHERE id = ?", (workplace_id,))
+    return back(request, "/workplaces", "Место работы удалено.")
+
+
+@app.get("/dashboard")
+def dashboard(request: Request):
+    now = datetime.now(ZoneInfo("UTC"))
+    week_ago = (now - timedelta(days=7)).isoformat(timespec="seconds")
+    employees = db.query("SELECT * FROM employees")
+    stages = {"before": 0, "onboarding": 0, "done": 0, "not_linked": 0}
+    for e in employees:
+        if not e["max_user_id"]:
+            stages["not_linked"] += 1
+            continue
+        today = engine.employee_now(e).astimezone(ZoneInfo(e["timezone"])).date()
+        start = date.fromisoformat(e["start_date"])
+        months = (today.year - start.year) * 12 + today.month - start.month - (today.day < start.day)
+        stages["before" if today < start else "done" if months >= cfg.PROBATION_MONTHS else "onboarding"] += 1
+    opened = db.query("SELECT q.*, e.full_name, e.workplace_id, e.recruiter_id FROM escalations q"
+                      " JOIN employees e ON e.id = q.employee_id WHERE q.status = 'open' ORDER BY q.id")
+    states = {q["id"]: hr.question_state(q, now) for q in opened}
+    places = []
+    for w in list(list_workplaces()) + [None]:
+        wid = w["id"] if w else None
+        mine = [e for e in employees if e["workplace_id"] == wid]
+        if w is None and not mine:
+            continue
+        ids = {e["id"] for e in mine}
+        places.append({
+            "workplace": w, "employees": len(mine),
+            "open": sum(1 for q in opened if q["employee_id"] in ids),
+            "overdue": sum(1 for q in opened if q["employee_id"] in ids and states[q["id"]]["overdue"]),
+            "flags": db.query_one(
+                f"SELECT COUNT(*) AS n FROM pulse WHERE risk = 2 AND created_at >= ? AND employee_id IN "
+                f"({','.join('?' * len(ids)) or 'NULL'})", (week_ago, *ids))["n"],
+        })
+    recruiters = []
+    for r in db.query("SELECT * FROM recruiters ORDER BY name"):
+        recruiters.append({"recruiter": r, "stats": hr.recruiter_stats(r["id"]),
+                           "working": hours.of_recruiter(r).is_open(now, engine.holidays()),
+                           "employees": sum(1 for e in employees if e["recruiter_id"] == r["id"])})
+    red = db.query("SELECT p.*, e.full_name FROM pulse p JOIN employees e ON e.id = p.employee_id"
+                   " WHERE p.risk = 2 AND p.created_at >= ? ORDER BY p.id DESC LIMIT 10", (week_ago,))
+    topics = db.query("SELECT topic, COUNT(*) AS n FROM pulse WHERE risk >= 1 AND topic != 'другое'"
+                      " GROUP BY topic ORDER BY n DESC LIMIT 5")
+    waiting = db.query_one("SELECT COUNT(*) AS n FROM escalations WHERE status = 'answered' AND delivered_at IS NULL")
+    return page(request, "dashboard.html", stages=stages, total=len(employees), opened=opened, states=states,
+                places=places, recruiters=recruiters, red=red, topics=topics, model_up=llm.is_up(),
+                waiting=waiting["n"])
 
 
 @app.get("/recruiters/{recruiter_id}/qr.png")
@@ -382,13 +597,28 @@ async def check_question(request: Request, question: str = Form(""), tags: str =
 @app.get("/questions")
 def questions_page(request: Request):
     rows = db.query(
-        "SELECT q.*, e.full_name, e.tags, r.name AS recruiter_name, r.max_user_id AS recruiter_linked"
+        "SELECT q.*, e.full_name, e.tags, e.timezone AS employee_tz, e.workplace_id, w.name AS workplace_name,"
+        " r.name AS recruiter_name, r.max_user_id AS recruiter_linked"
         " FROM escalations q JOIN employees e ON e.id = q.employee_id"
-        " LEFT JOIN recruiters r ON r.id = e.recruiter_id ORDER BY q.id DESC"
+        " LEFT JOIN recruiters r ON r.id = e.recruiter_id LEFT JOIN workplaces w ON w.id = e.workplace_id"
+        " ORDER BY q.id DESC"
     )
-    opened = [(row, read_context(row["context"])) for row in reversed([r for r in rows if r["status"] == "open"])]
+    now = datetime.now(ZoneInfo("UTC"))
+    blocks: dict[str, list] = {}
+    # a block per workplace, so each plant's questions are seen together
+    for row in reversed([r for r in rows if r["status"] == "open"]):
+        blocks.setdefault(row["workplace_name"] or "Место работы не указано", []).append(
+            (row, read_context(row["context"]), hr.question_state(row, now)))
+    waiting = []
+    for row in rows:
+        if row["status"] == "answered" and not row["delivered_at"]:
+            employee = db.query_one("SELECT * FROM employees WHERE id = ?", (row["employee_id"],))
+            later = hr.answer_time(employee)
+            waiting.append((row, hours.when_text(later, employee["timezone"]) if later else "в ближайшую минуту"))
     answered = [row for row in rows if row["status"] != "open"][:30]
-    return page(request, "questions.html", opened=opened, answered=answered)
+    took = {q["id"]: hours.waited_text(q["created_at"], datetime.fromisoformat(q["answered_at"]))
+            for q in answered if q["answered_at"]}
+    return page(request, "questions.html", blocks=blocks, answered=answered, waiting=waiting, took=took)
 
 
 def read_context(raw: str) -> list[dict]:
@@ -413,7 +643,7 @@ async def answer_question(request: Request, escalation_id: int, answer: str = Fo
         return back(request, "/questions", "Новичок не привязан к боту: удалил свои данные или не открыл "
                                            "ссылку. Ответить некому.", bad=True)
     try:
-        await hr.deliver_answer(escalation_id, answer, "кабинет", employee_id, asked_at)
+        later = await hr.deliver_answer(escalation_id, answer, "кабинет", employee_id, asked_at)
     except ValueError as e:
         return back(request, "/questions", str(e), bad=True)
     except Exception as e:
@@ -421,6 +651,22 @@ async def answer_question(request: Request, escalation_id: int, answer: str = Fo
         log.warning("escalation %s: answer was not sent: %s", escalation_id, type(e).__name__)
         return back(request, "/questions", "Не получилось отправить ответ в МАКС. Вопрос остался открытым, "
                                            "попробуйте ещё раз.", bad=True)
+    if later is not None:
+        employee = db.query_one("SELECT timezone FROM employees WHERE id = ?", (employee_id,))
+        return back(request, "/questions", "Ответ принят. У новичка нерабочее время, ответ уйдёт "
+                                           f"{hours.when_text(later, employee['timezone'])} по его времени.")
+    return back(request, "/questions", "Ответ отправлен новичку.")
+
+
+@app.post("/questions/{escalation_id}/send-now")
+async def send_answer_now(request: Request, escalation_id: int):
+    try:
+        await hr.send_waiting_now(escalation_id)
+    except ValueError as e:
+        return back(request, "/questions", str(e), bad=True)
+    except Exception as e:
+        log.warning("escalation %s: waiting answer was not sent: %s", escalation_id, type(e).__name__)
+        return back(request, "/questions", "Не получилось отправить ответ в МАКС, попробуйте ещё раз.", bad=True)
     return back(request, "/questions", "Ответ отправлен новичку.")
 
 
@@ -501,13 +747,14 @@ def newcomers_sheet():
         " (SELECT COUNT(*) FROM sent_steps s WHERE s.employee_id = e.id AND s.status = 'skipped') AS skipped,"
         " (SELECT COUNT(*) FROM answers a WHERE a.employee_id = e.id) AS answers,"
         " (SELECT COUNT(*) FROM escalations q WHERE q.employee_id = e.id AND q.status = 'open') AS open_questions,"
-        " (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 2) AS red_flags"
+        " (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 2) AS red_flags,"
+        " (SELECT name FROM workplaces w WHERE w.id = e.workplace_id) AS workplace_name"
         " FROM employees e LEFT JOIN recruiters r ON r.id = e.recruiter_id ORDER BY e.start_date, e.id"
     )
-    header = ["ФИО", "Имя", "Дата выхода", "Часовой пояс", "Теги", "Рекрутер", "В боте с", "Обращение",
+    header = ["ФИО", "Имя", "Место работы", "Дата выхода", "Часовой пояс", "Теги", "Рекрутер", "В боте с", "Обращение",
               "Шагов отправлено", "Шагов пропущено", "Ответов на опросы", "Открытых вопросов", "Красных флагов"]
     return header, [
-        [e["full_name"], e["first_name"], e["start_date"], e["timezone"], e["tags"], e["recruiter_name"] or "",
+        [e["full_name"], e["first_name"], e["workplace_name"] or "", e["start_date"], e["timezone"], e["tags"], e["recruiter_name"] or "",
          local_time(e["linked_at"]), {"ty": "на ты", "vy": "на вы"}.get(e["address"], ""), e["sent"], e["skipped"],
          e["answers"], e["open_questions"], e["red_flags"]]
         for e in rows
@@ -533,10 +780,13 @@ def questions_sheet():
     rows = db.query("SELECT q.*, e.full_name, r.name AS recruiter_name FROM escalations q"
                     " JOIN employees e ON e.id = q.employee_id LEFT JOIN recruiters r ON r.id = e.recruiter_id"
                     " ORDER BY q.id")
-    header = ["Новичок", "Рекрутер", "Когда", "Вопрос", "Статус", "Ответ", "Кто ответил", "Когда ответили"]
+    header = ["Новичок", "Рекрутер", "Когда", "Вопрос", "Статус", "Ответ", "Кто ответил", "Когда ответили",
+              "Ответили за", "Напоминаний", "Доставлен новичку"]
     return header, [[q["full_name"], q["recruiter_name"] or "", local_time(q["created_at"]), q["question"],
                      "открыт" if q["status"] == "open" else "отвечен", q["answer"] or "", q["answered_by"] or "",
-                     local_time(q["answered_at"])] for q in rows]
+                     local_time(q["answered_at"]),
+                     hours.waited_text(q["created_at"], datetime.fromisoformat(q["answered_at"]))
+                     if q["answered_at"] else "", q["reminders"], local_time(q["delivered_at"])] for q in rows]
 
 
 def add_sheet(workbook, title: str, header: list[str], rows: list[list]) -> None:

@@ -34,6 +34,10 @@ def admin(client):
     return client
 
 
+# a recruiter who works around the clock: the tests here are not about hours
+ALWAYS = {"timezone": "Europe/Moscow", "days": ["1", "2", "3", "4", "5", "6", "7"], "work_start": "00:00",
+          "work_end": "23:59"}
+
 def add_recruiter(name="Ольга", max_user_id=None, code="olga"):
     return db.execute(
         "INSERT INTO recruiters (name, max_user_id, invite_code, created_at) VALUES (?, ?, ?, ?)",
@@ -216,7 +220,7 @@ def test_unknown_employee_is_a_page_not_a_crash(admin):
 
 
 def test_recruiter_gets_a_link_that_the_bot_accepts(admin):
-    assert admin.post("/recruiters", data={"name": "Ольга Петрова"}).status_code == 303
+    assert admin.post("/recruiters", data={"name": "Ольга Петрова", **ALWAYS}).status_code == 303
     row = db.query_one("SELECT * FROM recruiters")
     assert row["name"] == "Ольга Петрова" and row["max_user_id"] is None
     assert f"https://max.ru/korsik_test_bot?start=hr_{row['invite_code']}" in admin.get("/recruiters").text

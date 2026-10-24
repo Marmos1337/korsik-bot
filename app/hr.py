@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -5,12 +6,17 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app import db, engine, knowledge, llm, max_api, messaging
+from app import db, engine, hours, knowledge, llm, max_api, messaging
 from app.config import cfg
 
 log = logging.getLogger(__name__)
 
 CONTEXT_SIZE = 5
+FOLLOWUP_SECONDS = 60
+REMIND_EVERY = timedelta(hours=1)
+MAX_REMINDERS = 5
+OVERDUE_AFTER = timedelta(hours=2)  # after this an open question shows red in the cabinet
+OFF_HOURS_GRACE = timedelta(minutes=30)  # a question waiting this long while the recruiter is off work shows red
 WAIT_LIMIT = timedelta(hours=24)  # a forgotten «Ответить» must not catch a message written days later
 TOPICS = ("доступы", "наставник", "руководитель", "нагрузка", "коллеги", "условия", "оформление", "другое")
 TONES = ("позитивный", "нейтральный", "негативный")
@@ -108,10 +114,11 @@ async def _tell_employee(employee, reason: str) -> None:
 
 
 async def deliver_answer(escalation_id: int, answer: str, answered_by: str, employee_id: int,
-                         asked_at: str) -> None:
-    """Sends the HR answer to the employee and closes the question. Also used by the admin pages.
+                         asked_at: str, force: bool = False) -> datetime | None:
+    """Closes the question and sends the HR answer to the employee. Also used by the admin pages.
 
-    ValueError with a text for people: the question is gone or somebody has answered it already.
+    Outside the newcomer's working hours the answer waits, and the moment it will go out is returned;
+    None means it went out now. ValueError with a text for people: the question is gone or answered already.
     """
     # sqlite gives the id of a deleted question to the next one, even to the same newcomer after /delete,
     # so the caller also names whose question it means and when it was asked
@@ -123,18 +130,191 @@ async def deliver_answer(escalation_id: int, answer: str, answered_by: str, empl
     if not _claim(*key, answer, answered_by):
         row = _question(*key)
         raise ValueError(_answered_by(row) if row else QUESTION_GONE)
+    employee = db.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
+    later = None if force else answer_time(employee)
+    if later is not None:
+        log.info("escalation %s answered, waits for the newcomer's working hours", escalation_id)
+        return later
     try:
-        employee = db.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
-        text = engine.phrase(employee, "hr_answer").format(question=_cut(row["question"], 200), answer=answer)
-        for part in messaging.split_text(text):
-            await max_api.send_message(part, user_id=employee["max_user_id"])
+        await _send_answer(employee, row["question"], answer, escalation_id)
     except Exception:
         # the employee got nothing: the question goes back to open and can be answered again
         db.execute("UPDATE escalations SET status = 'open', answer = NULL, answered_by = NULL, answered_at = NULL"
                    " WHERE id = ? AND employee_id = ? AND created_at = ? AND status = 'answered'", key)
         raise
+    return None
+
+
+def answer_time(employee) -> datetime | None:
+    """None if the newcomer is at work now, else when the working day of their workplace starts."""
+    schedule = hours.of_employee(employee)
+    now = engine.employee_now(employee)
+    if schedule is None or schedule.is_open(now, engine.holidays()):
+        return None
+    # the shift is the demo rewind; the real moment is what the scheduler compares with
+    return schedule.next_open(now, engine.holidays()) - timedelta(seconds=employee["time_shift"] or 0)
+
+
+async def _send_answer(employee, question: str, answer: str, escalation_id: int) -> None:
+    text = engine.phrase(employee, "hr_answer").format(question=_cut(question, 200), answer=answer)
+    for part in messaging.split_text(text):
+        await max_api.send_message(part, user_id=employee["max_user_id"])
+    db.execute("UPDATE escalations SET delivered_at = ? WHERE id = ?", (db.now_iso(), escalation_id))
     messaging.log_message(employee["id"], "hr", text)
     log.info("escalation %s answered", escalation_id)
+
+
+async def deliver_waiting_answers() -> int:
+    """Answers given outside the newcomer's working hours go out when their day starts."""
+    sent = 0
+    rows = db.query("SELECT q.* FROM escalations q JOIN employees e ON e.id = q.employee_id"
+                    " WHERE q.status = 'answered' AND q.delivered_at IS NULL AND q.answer IS NOT NULL"
+                    " AND e.max_user_id IS NOT NULL ORDER BY q.id")
+    for row in rows:
+        employee = db.query_one("SELECT * FROM employees WHERE id = ?", (row["employee_id"],))
+        if answer_time(employee) is not None:
+            continue
+        try:
+            await _send_answer(employee, row["question"], row["answer"], row["id"])
+            sent += 1
+        except Exception as e:
+            # stays waiting and goes on the next round; the recruiter has done their part
+            log.warning("escalation %s: waiting answer was not sent: %s", row["id"], e)
+    return sent
+
+
+async def send_waiting_now(escalation_id: int) -> None:
+    """HR sends a waiting answer at once, without looking at the newcomer's hours."""
+    row = db.query_one("SELECT * FROM escalations WHERE id = ? AND status = 'answered' AND delivered_at IS NULL",
+                       (escalation_id,))
+    if row is None:
+        raise ValueError("Этот ответ уже отправлен.")
+    employee = db.query_one("SELECT * FROM employees WHERE id = ?", (row["employee_id"],))
+    if employee is None or not employee["max_user_id"]:
+        raise ValueError("Новичок не привязан к боту, отправить некому.")
+    await _send_answer(employee, row["question"], row["answer"], row["id"])
+
+
+async def remind_recruiters(now: datetime | None = None) -> int:
+    """An unanswered question reminds its recruiter once an hour, up to five times, only in their working hours."""
+    now = now or datetime.now(timezone.utc)
+    sent = 0
+    rows = db.query(
+        "SELECT q.*, r.id AS rid FROM escalations q JOIN employees e ON e.id = q.employee_id"
+        " JOIN recruiters r ON r.id = e.recruiter_id"
+        " WHERE q.status = 'open' AND r.max_user_id IS NOT NULL AND q.reminders < ? ORDER BY q.id",
+        (MAX_REMINDERS,))
+    for row in rows:
+        recruiter = db.query_one("SELECT * FROM recruiters WHERE id = ?", (row["rid"],))
+        if not hours.of_recruiter(recruiter).is_open(now, engine.holidays()):
+            continue
+        last = datetime.fromisoformat(row["reminded_at"] or row["created_at"])
+        if now - last < REMIND_EVERY:
+            continue
+        employee = db.query_one("SELECT * FROM employees WHERE id = ?", (row["employee_id"],))
+        number = row["reminders"] + 1
+        text = (f"Напоминание {number} из {MAX_REMINDERS}: вопрос от новичка {_who(employee)} ждёт ответа "
+                f"{hours.waited_text(row['created_at'], now)}.\n\n«{_cut(row['question'], 500)}»")
+        if number == MAX_REMINDERS:
+            text += "\n\nЭто последнее напоминание, дальше вопрос виден в кабинете HR как просроченный."
+        db.execute("UPDATE escalations SET reminders = ?, reminded_at = ? WHERE id = ?",
+                   (number, now.isoformat(timespec="seconds"), row["id"]))
+        await _send_safely(recruiter["max_user_id"], None, text,
+                           [[max_api.callback_button("Ответить", f"esc:reply:{row['id']}")]])
+        sent += 1
+    return sent
+
+
+async def followup_loop() -> None:
+    while True:
+        try:
+            await deliver_waiting_answers()
+            await remind_recruiters()
+        except Exception:
+            log.exception("follow-up round failed")
+        await asyncio.sleep(FOLLOWUP_SECONDS)
+
+
+def question_state(question, now: datetime | None = None) -> dict:
+    """How an open question looks to HR: how long it waits and why it is red, if it is."""
+    now = now or datetime.now(timezone.utc)
+    waited = now - datetime.fromisoformat(question["created_at"])
+    state = {"waited": hours.waited_text(question["created_at"], now), "overdue": False, "notes": [],
+             "reminders": question["reminders"]}
+    employee = db.query_one("SELECT recruiter_id FROM employees WHERE id = ?", (question["employee_id"],))
+    recruiter = None
+    if employee and employee["recruiter_id"]:
+        recruiter = db.query_one("SELECT * FROM recruiters WHERE id = ?", (employee["recruiter_id"],))
+    if recruiter is None:
+        state["overdue"] = True
+        state["notes"].append("рекрутер не назначен: ответить можно только здесь")
+        return state
+    schedule = hours.of_recruiter(recruiter)
+    working = schedule.is_open(now, engine.holidays())
+    state["recruiter"] = recruiter["name"]
+    state["working"] = working
+    if not recruiter["max_user_id"]:
+        state["overdue"] = True
+        state["notes"].append(f"{recruiter['name']} не привязал МАКС: вопрос виден только здесь")
+    if not working:
+        back_at = hours.when_text(schedule.next_open(now, engine.holidays()), recruiter["timezone"])
+        state["notes"].append(f"{recruiter['name']} сейчас не работает ({schedule.describe()}), вернётся {back_at}")
+        if waited >= OFF_HOURS_GRACE:
+            state["overdue"] = True
+    if question["reminders"] >= MAX_REMINDERS:
+        state["overdue"] = True
+        state["notes"].append(f"{MAX_REMINDERS} напоминаний рекрутеру без ответа")
+    if waited >= OVERDUE_AFTER:
+        state["overdue"] = True
+    return state
+
+
+def overdue_count() -> int:
+    now = datetime.now(timezone.utc)
+    return sum(question_state(q, now)["overdue"]
+               for q in db.query("SELECT * FROM escalations WHERE status = 'open'"))
+
+
+def recruiter_stats(recruiter_id: int) -> dict:
+    rows = db.query("SELECT q.* FROM escalations q JOIN employees e ON e.id = q.employee_id"
+                    " WHERE e.recruiter_id = ?", (recruiter_id,))
+    answered = [r for r in rows if r["status"] == "answered" and r["answered_at"]]
+    minutes = sorted((datetime.fromisoformat(r["answered_at"]) - datetime.fromisoformat(r["created_at"]))
+                     .total_seconds() / 60 for r in answered)
+    now = datetime.now(timezone.utc)
+    opened = [r for r in rows if r["status"] == "open"]
+    return {
+        "total": len(rows),
+        "answered": len(answered),
+        "open": len(opened),
+        "overdue": sum(question_state(r, now)["overdue"] for r in opened),
+        "waiting_delivery": sum(1 for r in answered if not r["delivered_at"]),
+        "median": _minutes_text(minutes[len(minutes) // 2]) if minutes else "",
+        "within_hour": round(100 * sum(1 for m in minutes if m <= 60) / len(minutes)) if minutes else None,
+        "reminders": sum(r["reminders"] for r in rows),
+    }
+
+
+def _minutes_text(minutes: float) -> str:
+    return hours.waited_text("2000-01-01T00:00:00+00:00",
+                             datetime(2000, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=minutes))
+
+
+def change_workplace(employee_id: int, workplace_id: int | None) -> None:
+    """Moves a newcomer to another workplace: its tags replace the old workplace's tags, its zone comes along."""
+    employee = db.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
+    old = db.query_one("SELECT * FROM workplaces WHERE id = ?", (employee["workplace_id"],)) \
+        if employee["workplace_id"] else None
+    new = db.query_one("SELECT * FROM workplaces WHERE id = ?", (workplace_id,)) if workplace_id else None
+    old_tags = {t.lower() for t in db.split_tags(old["tags"])} if old else set()
+    # tags HR typed by hand for this newcomer stay, only the workplace's own ones change
+    own = [t for t in db.split_tags(employee["tags"]) if t.lower() not in old_tags]
+    tags = db.split_tags(new["tags"]) if new else []
+    tags += [t for t in own if t.lower() not in {x.lower() for x in tags}]
+    db.execute("UPDATE employees SET workplace_id = ?, tags = ?, timezone = ? WHERE id = ?",
+               (new["id"] if new else None, ", ".join(tags), new["timezone"] if new else employee["timezone"],
+                employee_id))
+    log.info("employee %s moved to workplace %s", employee_id, new["id"] if new else None)
 
 
 def _question(escalation_id: int, employee_id: int, asked_at: str):
@@ -250,7 +430,7 @@ async def _on_text(recruiter, text: str) -> None:
         db.kv_set(_wait_key(recruiter), "")
         escalation_id, employee_id, asked_at = waiting
         try:
-            await deliver_answer(escalation_id, text, recruiter["name"], employee_id, asked_at)
+            later = await deliver_answer(escalation_id, text, recruiter["name"], employee_id, asked_at)
         except ValueError as e:
             await _to_recruiter(recruiter, str(e))
             return
@@ -261,8 +441,13 @@ async def _on_text(recruiter, text: str) -> None:
             return
         buttons = [[max_api.callback_button("Добавить в базу знаний", f"esc:kb:{escalation_id}:yes"),
                     max_api.callback_button("Не надо", f"esc:kb:{escalation_id}:no")]]
-        await _to_recruiter(recruiter, "Отправил ответ новичку. Добавить пару «вопрос-ответ» в базу знаний, "
-                                       "чтобы в следующий раз я ответил сам?", buttons)
+        done = "Отправил ответ новичку."
+        if later is not None:
+            employee = db.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
+            done = (f"Ответ принят. У новичка сейчас нерабочее время, он получит ответ "
+                    f"{hours.when_text(later, employee['timezone'])} по своему времени.")
+        await _to_recruiter(recruiter, done + " Добавить пару «вопрос-ответ» в базу знаний, "
+                                              "чтобы в следующий раз я ответил сам?", buttons)
     elif waiting is not None:
         await _to_recruiter(recruiter, "Пришлите, пожалуйста, ответ текстом.")
     else:

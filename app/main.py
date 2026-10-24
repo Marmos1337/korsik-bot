@@ -42,6 +42,7 @@ async def main() -> None:
         asyncio.create_task(wait_for_bot_name()),
         asyncio.create_task(bot.polling_loop()),
         asyncio.create_task(engine.scheduler_loop()),
+        asyncio.create_task(hr.followup_loop()),
         asyncio.create_task(llm.watch_loop(hr.on_llm_mode_change, knowledge.embed_missing)),
     ]
     server = uvicorn.Server(uvicorn.Config(app, host=cfg.WEB_HOST, port=cfg.WEB_PORT))

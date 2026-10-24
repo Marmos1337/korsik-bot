@@ -6,6 +6,7 @@
 
 <table>
   <tr><th>Имя для обращения</th><td>{{ employee.first_name }}</td></tr>
+  <tr><th>Место работы</th><td>{{ employee.workplace_name or "не указано" }}{% if schedule %}, рабочее время {{ schedule }}{% endif %}</td></tr>
   <tr><th>Выход</th><td>{{ employee.start_date }}</td></tr>
   <tr><th>Часовой пояс</th><td>{{ employee.timezone|zone }}, {{ employee.timezone }}</td></tr>
   <tr><th>Теги</th><td>{{ employee.tags or "нет" }}</td></tr>
@@ -13,6 +14,24 @@
   <tr><th>Обращение</th><td>{% if employee.address == "ty" %}на ты{% elif employee.address == "vy" %}на вы{% else %}ещё не выбрано{% endif %}</td></tr>
   <tr><th>В боте</th><td>{% if employee.linked_at %}с {{ employee.linked_at|local }}{% else %}ссылка ещё не открыта{% endif %}</td></tr>
 </table>
+{% if late %}<p class="muted">Новичок открыл ссылку поздно: пропущенные необязательные шаги он не получит, обязательные приходят коротко, не больше трёх в день в рабочее время.</p>{% endif %}
+{% if not schedule %}<p class="muted">Место работы не указано, поэтому ответы HR уходят новичку сразу, в любое время.</p>{% endif %}
+
+<form method="post" action="/employees/{{ employee.id }}/move">
+  <label class="inline">Место работы
+    <select name="workplace_id">
+      <option value="">не указано</option>
+      {% for w in workplaces %}<option value="{{ w.id }}"{% if w.id == employee.workplace_id %} selected{% endif %}>{{ w.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="inline">Рекрутер
+    <select name="recruiter_id">
+      <option value="">не назначен</option>
+      {% for r in recruiters %}<option value="{{ r.id }}"{% if r.id == employee.recruiter_id %} selected{% endif %}>{{ r.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <button>Сохранить</button>
+</form>
 
 <h2>Ссылка и QR</h2>
 {% if link %}

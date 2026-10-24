@@ -10,7 +10,8 @@ from app.config import cfg
 
 UTC = timezone.utc
 HEADERS = ["Шаг", "Когда", "После", "Теги", "Тип", "Текст на «ты»", "Текст на «вы»", "Кнопки", "Плохой ответ",
-           "Картинка", "Комментарий"]
+           "Картинка", "Комментарий", "Обязательный"]
+REQUIRED = {"1", "2", "3"}  # the hello and the «ты»/«вы» choice reach even a newcomer who came late
 REAL_SCENARIO = Path(__file__).resolve().parent.parent / "scenario" / "scenario.xlsx"
 
 # start date in the tests is Monday 2026-11-02, Moscow is UTC+3 and there are no holidays
@@ -51,7 +52,10 @@ def write_scenario(path, rows):
     ws.title = "Сценарий"
     ws.append(HEADERS)
     for row in rows:
-        ws.append(list(row) + [""] * (len(HEADERS) - len(row)))
+        cells = list(row) + [""] * (len(HEADERS) - len(row))
+        if row[0] in REQUIRED:
+            cells[HEADERS.index("Обязательный")] = "да"
+        ws.append(cells)
     wb.save(path)
     return path
 
@@ -121,11 +125,13 @@ def payloads(message):
     return [b.get("payload") for row in message["buttons"] or [] for b in row]
 
 
-def make_employee(code="anna", tags="GrPP", tz="Europe/Moscow", start="2026-11-02"):
+def make_employee(code="anna", tags="GrPP", tz="Europe/Moscow", start="2026-11-02", created=None):
+    # HR adds the newcomer a few days before the link is opened, otherwise the newcomer counts as late
+    created = created or LINK_TIME - timedelta(days=3)
     return db.execute(
         "INSERT INTO employees (full_name, first_name, start_date, timezone, tags, invite_code, created_at)"
         " VALUES ('Смирнова Анна', 'Аня', ?, ?, ?, ?, ?)",
-        (start, tz, tags, code, db.now_iso()),
+        (start, tz, tags, code, created.isoformat(timespec="seconds")),
     )
 
 
@@ -518,3 +524,98 @@ def test_parallel_ticks_and_presses_send_each_step_once(clock, monkeypatch):
 
     assert sorted(sent) == sorted(set(sent))
     assert {"Отлично, Аня, на ты.", "С первым днём, Аня!", "Вот справочник коллег"} <= set(sent)
+
+
+LATE_ROWS = [
+    ("1", "старт", "", "", "сообщение", "Здравствуйте! Я Корсик."),
+    ("2", "старт", "", "", "обращение", "На ты или на вы?", "", "На «ты» | На «вы»"),
+    ("3", "старт", "", "", "сообщение", "Отлично, {имя}, на ты.", "Хорошо, {имя}, на вы."),
+    ("4", "старт", "", "", "сообщение", "Длинный рассказ о компании"),
+    ("10", "р1 10:00", "", "", "сообщение", "С первым днём!"),
+    ("11", "р1 11:00", "", "", "сообщение", "Справочник: длинный текст", "", "", "", "", "", "да",
+     "Справочник коллег: ссылка"),
+    ("12", "р1 12:00", "", "", "сообщение", "План испытательного срока", "", "", "", "", "", "да"),
+    ("13", "р1 13:00", "", "", "сообщение", "Где пропуск", "", "", "", "", "", "да"),
+    ("14", "р1 14:00", "", "", "сообщение", "Где столовая", "", "", "", "", "", "да"),
+    ("20", "+10д 10:00", "", "", "сообщение", "Десять дней с нами"),
+]
+LATE_HEADERS = HEADERS + ["Кратко на «ты»"]
+
+
+def write_late_scenario(tmp_path, monkeypatch):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Сценарий"
+    ws.append(LATE_HEADERS)
+    for row in LATE_ROWS:
+        cells = list(row) + [""] * (len(LATE_HEADERS) - len(row))
+        if row[0] in REQUIRED:
+            cells[LATE_HEADERS.index("Обязательный")] = "да"
+        ws.append(cells)
+    path = tmp_path / "late.xlsx"
+    wb.save(path)
+    monkeypatch.setattr(cfg, "SCENARIO_PATH", str(path))
+    assert engine.reload_scenario() == []
+
+
+def add_workplace_9_18():
+    return db.execute("INSERT INTO workplaces (name, tags, timezone, work_days, work_start, work_end, created_at)"
+                      " VALUES ('Завод', 'GrPP', 'Europe/Moscow', '1,2,3,4,5', '09:00', '18:00', ?)", (db.now_iso(),))
+
+
+def test_late_newcomer_gets_only_required_steps_short_three_a_day_in_working_hours(clock, outbox, tmp_path,
+                                                                                   monkeypatch):
+    write_late_scenario(tmp_path, monkeypatch)
+    # added on 2026-10-20, opens the link on Thursday 2026-11-05 at 20:00 Moscow, after working hours
+    employee_id = make_employee(created=datetime(2026, 10, 20, 9, 0, tzinfo=UTC))
+    db.execute("UPDATE employees SET workplace_id = ? WHERE id = ?", (add_workplace_9_18(), employee_id))
+    clock.now = datetime(2026, 11, 5, 17, 0, tzinfo=UTC)
+    run(engine.link_employee({"user_id": 500}, "anna"))
+    press(employee_id, "addr:ty")
+
+    assert engine.is_late(employee(employee_id))
+    # the hello and the choice came, the long story about the company did not
+    assert "Длинный рассказ о компании" not in texts(outbox)
+    assert statuses(employee_id)["4"] == "skipped" and statuses(employee_id)["10"] == "skipped"
+    assert not any("Справочник" in t for t in texts(outbox))  # evening: catch-up waits for the working day
+
+    outbox.clear()
+    clock.now = datetime(2026, 11, 6, 6, 30, tzinfo=UTC)  # Friday 09:30
+    run(engine.tick())
+    run(engine.tick())
+    assert texts(outbox) == ["Справочник коллег: ссылка", "План испытательного срока", "Где пропуск"]
+
+    outbox.clear()
+    clock.now = datetime(2026, 11, 9, 6, 30, tzinfo=UTC)  # Monday 09:30, the weekend gave nothing
+    run(engine.tick())
+    assert texts(outbox) == ["Где столовая"]
+
+
+def test_newcomer_on_time_gets_the_whole_start(clock, outbox, tmp_path, monkeypatch):
+    write_late_scenario(tmp_path, monkeypatch)
+    # added three days before, opens the link on the morning of the first day
+    employee_id = make_employee(created=datetime(2026, 10, 30, 9, 0, tzinfo=UTC))
+    clock.now = datetime(2026, 11, 2, 6, 0, tzinfo=UTC)  # Monday 09:00, the first day
+    run(engine.link_employee({"user_id": 500}, "anna"))
+    press(employee_id, "addr:ty")
+
+    assert not engine.is_late(employee(employee_id))
+    assert "Длинный рассказ о компании" in texts(outbox)
+
+
+def test_scenario_rejects_short_text_on_optional_step(tmp_path):
+    from app.scenario import validate_scenario
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Сценарий"
+    ws.append(LATE_HEADERS)
+    ws.append(["1", "старт", "", "", "сообщение", "Привет", "", "", "", "", "", "", "Кратко"])
+    ws.append(["2", "", "1: Да", "", "сообщение", "Ветка", "", "", "", "", "", "да"])
+    ws.append(["3", "старт", "", "", "сообщение", "Тест", "", "", "", "", "", "может быть"])
+    wb.save(tmp_path / "bad.xlsx")
+
+    problems = " ".join(validate_scenario(tmp_path / "bad.xlsx"))
+
+    assert "короткий текст нужен только обязательному" in problems
+    assert "обязательным бывает шаг с «Когда»" in problems
+    assert "«Обязательный» пишется как «да»" in problems

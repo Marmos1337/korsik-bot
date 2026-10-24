@@ -22,6 +22,9 @@ COLUMNS = {
     "кнопки": "buttons",
     "плохой ответ": "bad_answer",
     "картинка": "image",
+    "обязательный": "required",
+    "кратко на «ты»": "short_ty",
+    "кратко на «вы»": "short_vy",
 }
 REQUIRED_COLUMNS = ("id", "when", "kind", "text_ty")
 KINDS = ("сообщение", "обращение", "вопрос", "опрос", "шкала", "текст")
@@ -58,6 +61,10 @@ class Step:
     bad_answer: str
     image: str
     row: int
+    # a required step still reaches a newcomer who opened the link late; an optional one is skipped then
+    required: bool = False
+    short_ty: str = ""
+    short_vy: str = ""
 
 
 class ScenarioError(Exception):
@@ -126,9 +133,12 @@ def step_due_at(step: Step, start_date: date, tz: str, holidays: set[date],
     return datetime.combine(day, at, tzinfo=ZoneInfo(tz)).astimezone(timezone.utc)
 
 
-def render_text(step: Step, address: str | None, first_name: str) -> str:
+def render_text(step: Step, address: str | None, first_name: str, short: bool = False) -> str:
     # until the employee picks "ты" or "вы" the bot talks on "вы"
     text = step.text_ty if address == "ty" else (step.text_vy or step.text_ty)
+    if short:
+        # a late newcomer gets the short version of a required step, when the scenario has one
+        text = (step.short_ty if address == "ty" else (step.short_vy or step.short_ty)) or text
     text = HR_NOTE_RE.sub("", text)
     text = "\n".join(line.rstrip() for line in text.split("\n"))
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -270,15 +280,26 @@ def _parse_row(cells: dict[str, str], row: int, problems: list[str]) -> Step:
         else:
             problem(f"«Плохой ответ» бывает только у опроса и шкалы, а тут тип «{kind}»")
 
+    flag = cells["required"].lower()
+    required = flag in ("да", "+", "1", "yes", "обязательный")
+    if flag and not required and flag not in ("нет", "-", "0", "no"):
+        problem(f"«Обязательный» пишется как «да» или пусто, а написано «{cells['required']}»")
+    if required and after:
+        problem("обязательным бывает шаг с «Когда»; ветка после кнопки уходит сама, если нажали кнопку")
+    if (cells["short_ty"] or cells["short_vy"]) and not required:
+        problem("короткий текст нужен только обязательному шагу: его получит новичок, который пришёл поздно")
+
     image = cells["image"]
     if image and not IMAGE_RE.fullmatch(image):
         problem(f"картинка «{image}»: нужно имя файла из data/images, например img_03.png")
 
     step = Step(id=cells["id"], when="" if after else when, after=after, tags=tags, kind=kind,
                 text_ty=cells["text_ty"], text_vy=cells["text_vy"], buttons=buttons,
-                bad_answer=bad, image=image, row=row)
+                bad_answer=bad, image=image, row=row, required=required,
+                short_ty=cells["short_ty"], short_vy=cells["short_vy"])
 
-    for label, text in (("ты", step.text_ty), ("вы", step.text_vy)):
+    for label, text in (("ты", step.text_ty), ("вы", step.text_vy), ("ты, кратко", step.short_ty),
+                        ("вы, кратко", step.short_vy)):
         if len(text) > MAX_TEXT:
             problem(f"текст на «{label}» длиннее {MAX_TEXT} символов ({len(text)})")
     if not render_text(step, "ty", "Имя") or not render_text(step, "vy", "Имя"):

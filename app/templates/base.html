@@ -16,19 +16,34 @@ nav a, nav form { margin-right: 1rem; display: inline; }
 .text { white-space: pre-wrap; }
 .muted { color: #666; }
 label { display: block; margin: .4rem 0; }
+label.inline { display: inline; margin-right: .6rem; }
+.alert { padding: .6rem; background: #c62828; color: #fff; margin-bottom: 1rem; }
+.alert a { color: #fff; }
+.overdue { border-left: 6px solid #c62828; padding-left: .6rem; background: #fdecea; }
+.red { color: #c62828; font-weight: bold; }
+.ok { color: #2e7d32; }
+.cards { display: flex; flex-wrap: wrap; gap: .6rem; margin: .5rem 0 1.5rem; }
+.card { border: 1px solid #bbb; padding: .5rem .8rem; min-width: 9rem; }
+.card b { display: block; font-size: 1.6rem; }
 </style>
 </head>
 <body>
 {% if request.session.get("admin") %}
 <nav>
+  <a href="/dashboard">Дашборд</a>
   <a href="/">Новички</a>
   <a href="/recruiters">Рекрутеры</a>
+  <a href="/workplaces">Места работы</a>
   <a href="/knowledge">Документы</a>
   <a href="/questions">Вопросы{% if open_questions() %} ({{ open_questions() }}){% endif %}</a>
   <a href="/scenario">Сценарий</a>
   <a href="/export.xlsx">Excel</a>
   <form method="post" action="/logout"><button>Выйти</button></form>
 </nav>
+{% set late_questions = overdue_questions() %}
+{% if late_questions %}
+<p class="alert">Вопросов ждут ответа слишком долго: {{ late_questions }}. Рекрутер не отвечает или сейчас не работает. <a href="/questions">Открыть вопросы</a></p>
+{% endif %}
 {% endif %}
 {% if flash %}<p class="flash{% if flash.bad %} bad{% endif %}">{{ flash.text }}</p>{% endif %}
 {% block content %}{% endblock %}

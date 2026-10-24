@@ -22,6 +22,10 @@ RECRUITER, NEWCOMER = 700, 500
 NEUTRAL_MARK = '{"tone": "нейтральный", "topic": "другое", "risk": 0, "reason": ""}'
 
 
+# a recruiter who works around the clock: the tests here are not about hours
+ALWAYS = {"timezone": "Europe/Moscow", "days": ["1", "2", "3", "4", "5", "6", "7"], "work_start": "00:00",
+          "work_end": "23:59"}
+
 def fake_vector(text: str) -> list[float]:
     # words land in fixed slots: texts with common words are close, texts without are not
     vector = [0.0] * 512
@@ -109,7 +113,7 @@ def onboard(world, tmp_path) -> int:
 
     cabinet = TestClient(web.app, follow_redirects=False)
     assert cabinet.post("/login", data={"password": PASSWORD}).status_code == 303
-    assert cabinet.post("/recruiters", data={"name": "Ольга"}).status_code == 303
+    assert cabinet.post("/recruiters", data={"name": "Ольга", **ALWAYS}).status_code == 303
     recruiter = db.query_one("SELECT * FROM recruiters")
     form = {"full_name": "Смирнова Анна", "first_name": "Анна", "timezone": "Asia/Novosibirsk", "tags": "GrPP",
             "start_date": (date.today() + timedelta(days=10)).isoformat(), "recruiter_id": str(recruiter["id"])}

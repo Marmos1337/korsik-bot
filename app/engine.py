@@ -2,9 +2,10 @@ import asyncio
 import json
 import logging
 import math
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
-from app import db, hr, max_api, messaging
+from app import db, hours, hr, max_api, messaging
 from app.config import cfg
 from app.scenario import (
     SPECIAL_WHEN, START, ScenarioError, Step, is_bad_answer, load_holidays, load_scenario, render_text,
@@ -16,7 +17,9 @@ log = logging.getLogger(__name__)
 TICK_SECONDS = 20
 REMIND_AFTER = timedelta(hours=24)
 SKIP_AFTER = timedelta(hours=48)
-LATE_LIMIT = timedelta(hours=24)  # a step this late at the moment of linking is not sent at all
+LATE_LIMIT = timedelta(hours=24)  # a step this late at the moment of linking is not sent at all, unless required
+LATE_JOIN = timedelta(days=7)  # a link opened this long after HR added the newcomer: only required steps
+CATCH_UP_PER_DAY = 3  # missed required steps a late newcomer gets per day, so the backlog does not come at once
 SEND_TRIES = 3  # refusals from MAX in a row before a step is given up, e.g. the newcomer blocked the bot
 # only these say that MAX will not deliver to this newcomer; a bad token (401), 429 and 5xx concern
 # everybody at once and pass with time, so on those the step just waits for the next tick
@@ -128,6 +131,10 @@ def reload_scenario() -> list[str]:
     return []
 
 
+def holidays() -> set[date]:
+    return _holidays
+
+
 def invite_link(code: str) -> str | None:
     # a link with an empty bot name opens nothing, so there is no link until MAX tells us the name
     if not cfg.BOT_USERNAME:
@@ -227,24 +234,30 @@ async def _stop_waiting(employee, waiting: dict) -> None:
 
 async def _send_due(employee, now: datetime) -> int:
     statuses = _statuses(employee["id"])
-    due = []
+    due, catch_up = [], []
     for step in _timed_steps(employee):
         if step.id in statuses:
             continue
         at = _due_at(employee, step)
         if at is None or at > now:
             continue
-        if _too_late(employee, step, at):
+        plan = _plan(employee, step, at)
+        if plan == "skip":
             _mark(employee["id"], step.id, "skipped")
-            continue
-        # the start steps come first even when a step of the day before the start is already due
-        due.append(((step.when != START, at, step.row), step))
+        elif plan == "catch_up":
+            catch_up.append(((at, step.row), step))
+        else:
+            # the start steps come first even when a step of the day before the start is already due
+            due.append(((step.when != START, at, step.row), step))
     due.sort(key=lambda item: item[0])
+    catch_up.sort(key=lambda item: item[0])
+    room = _catch_up_room(employee, now)
+    queue = [(step, False) for _, step in due] + [(step, True) for _, step in catch_up[:room]]
 
     sent = 0
-    for _, step in due:
+    for step, short in queue:
         try:
-            await _send_step(employee, step)
+            await _send_step(employee, step, short)
         except max_api.MaxError as e:
             await _send_failed(employee, step, e)
             break
@@ -269,8 +282,8 @@ async def _send_failed(employee, step: Step, error: max_api.MaxError) -> None:
     await _check_survey(employee, step)
 
 
-async def _send_step(employee, step: Step) -> None:
-    text = render_text(step, employee["address"], employee["first_name"])
+async def _send_step(employee, step: Step, short: bool = False) -> None:
+    text = render_text(step, employee["address"], employee["first_name"], short)
     if not db.query_one("SELECT 1 FROM sent_steps WHERE employee_id = ? AND status != 'skipped'", (employee["id"],)):
         # the very first message tells what we keep and how to delete it
         text += "\n\n" + phrase(employee, "privacy")
@@ -470,11 +483,17 @@ def _next_event(employee) -> tuple[str, datetime] | None:
         later = SKIP_AFTER if statuses.get(waiting["step"]) == "reminded" else REMIND_AFTER
         return waiting["step"], asked + later
     upcoming = []
+    now = employee_now(employee)
     for step in _timed_steps(employee):
         if step.id in statuses:
             continue
         at = _due_at(employee, step)
-        if at is not None and not _too_late(employee, step, at):
+        if at is None:
+            continue
+        plan = _plan(employee, step, at)
+        if plan == "catch_up":
+            upcoming.append((max(at, _catch_up_at(employee, now)), step.row, step.id))
+        elif plan == "send":
             upcoming.append((at, step.row, step.id))
     if not upcoming:
         return None
@@ -579,6 +598,54 @@ def _save_answer(employee_id: int, step_id: str, question: str, answer: str, sco
 
 def _too_late(employee, step: Step, at: datetime) -> bool:
     return step.when != START and at < datetime.fromisoformat(employee["linked_at"]) - LATE_LIMIT
+
+
+def is_late(employee) -> bool:
+    """Opened the link a week after HR added them, or only after the first working day."""
+    if not employee["linked_at"]:
+        return False
+    linked = datetime.fromisoformat(employee["linked_at"])
+    first_day = date.fromisoformat(employee["start_date"])
+    return (linked - datetime.fromisoformat(employee["created_at"]) >= LATE_JOIN
+            or linked.astimezone(ZoneInfo(employee["timezone"])).date() > first_day)
+
+
+def _plan(employee, step: Step, at: datetime) -> str:
+    """send, skip, or catch_up: a missed required step that goes out later, short and a few a day."""
+    if _too_late(employee, step, at):
+        return "catch_up" if step.required else "skip"
+    if step.when == START and not step.required and step.kind != "обращение" and is_late(employee):
+        return "skip"  # the long hello before the first day is no use to someone who has worked for a week
+    return "send"
+
+
+def _catch_up_room(employee, now: datetime) -> int:
+    schedule = hours.of_employee(employee)
+    if schedule is not None and not schedule.is_open(now, _holidays):
+        return 0
+    zone = ZoneInfo(employee["timezone"])
+    today = now.astimezone(zone).date()
+    done = 0
+    for row in db.query("SELECT step_id, sent_at FROM sent_steps WHERE employee_id = ? AND status != 'skipped'",
+                        (employee["id"],)):
+        step = _step(row["step_id"])
+        if (step is not None and step.required and step.when and step.when not in SPECIAL_WHEN
+                and datetime.fromisoformat(row["sent_at"]).astimezone(zone).date() == today):
+            at = _due_at(employee, step)
+            if at is not None and _too_late(employee, step, at):
+                done += 1
+    return max(CATCH_UP_PER_DAY - done, 0)
+
+
+def _catch_up_at(employee, now: datetime) -> datetime:
+    """When the next missed required step may go out: now, or the next working morning."""
+    schedule = hours.of_employee(employee)
+    at = now
+    if _catch_up_room(employee, now) == 0 and (schedule is None or schedule.is_open(now, _holidays)):
+        zone = ZoneInfo(employee["timezone"])
+        tomorrow = now.astimezone(zone).date() + timedelta(days=1)
+        at = datetime.combine(tomorrow, time(0), tzinfo=zone).astimezone(timezone.utc)
+    return schedule.next_open(at, _holidays) if schedule is not None else at
 
 
 def _statuses(employee_id: int) -> dict[str, str]:

@@ -164,8 +164,9 @@ def add_employee(name, recruiter_id, max_user_id, code, address="ty", tz="Asia/N
 
 def add_question(employee_id, question, status="open", answer=None):
     return db.execute(
-        "INSERT INTO escalations (employee_id, question, context, status, answer, created_at)"
-        " VALUES (?, ?, '[]', ?, ?, ?)", (employee_id, question, status, answer, db.now_iso()))
+        "INSERT INTO escalations (employee_id, question, context, status, answer, created_at, delivered_at)"
+        " VALUES (?, ?, '[]', ?, ?, ?, ?)",
+        (employee_id, question, status, answer, db.now_iso(), db.now_iso() if status == "answered" else None))
 
 
 def add_flag(employee_id, text):

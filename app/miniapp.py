@@ -15,7 +15,7 @@ from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse
 from markupsafe import escape
 
-from app import db, engine, hr
+from app import db, engine, hours, hr
 from app.config import cfg
 from app.scenario import render_text
 
@@ -132,7 +132,7 @@ async def answer_question(escalation_id: int, init_data: str = Form(""), answer:
     if question is not None and not question["max_user_id"]:
         return view(user_id, "Новичок удалил свои данные или ещё не открыл ссылку. Ответить некому.")
     try:
-        await hr.deliver_answer(escalation_id, answer, recruiter["name"], employee_id, asked_at)
+        later = await hr.deliver_answer(escalation_id, answer, recruiter["name"], employee_id, asked_at)
     except ValueError as e:
         return view(user_id, str(e))
     except Exception as e:
@@ -140,7 +140,49 @@ async def answer_question(escalation_id: int, init_data: str = Form(""), answer:
         log.warning("escalation %s: answer from the mini app was not sent: %s", escalation_id, type(e).__name__)
         return view(user_id, "Не получилось отправить ответ в МАКС. Вопрос остался открытым, попробуйте ещё раз.",
                     typed=(escalation_id, answer))
+    if later is not None:
+        employee = db.query_one("SELECT timezone FROM employees WHERE id = ?", (employee_id,))
+        return view(user_id, "Ответ принят. У новичка сейчас нерабочее время, он получит ответ "
+                             f"{hours.when_text(later, employee['timezone'])} по своему времени.", bad=False)
     return view(user_id, "Ответ отправлен новичку.", bad=False)
+
+
+@router.post("/app/profile")
+def save_profile(init_data: str = Form(""), tz: str = Form("", alias="timezone"), days: list[str] = Form([]),
+                 work_start: str = Form(""), work_end: str = Form("")):
+    """The recruiter sets their own working days and hours: reminders come only then."""
+    try:
+        user_id = check_init_data(init_data, cfg.MAX_BOT_TOKEN)
+    except ValueError as e:
+        return refused(e)
+    recruiter = db.query_one("SELECT * FROM recruiters WHERE max_user_id = ?", (user_id,))
+    if recruiter is None:
+        return view(user_id, ONLY_RECRUITERS, status=403)
+    schedule, problem = hours.read_form(tz, days, work_start, work_end)
+    if schedule is None:
+        return view(user_id, problem)
+    db.execute("UPDATE recruiters SET timezone = ?, work_days = ?, work_start = ?, work_end = ? WHERE id = ?",
+               (*schedule, recruiter["id"]))
+    return view(user_id, "График сохранён. Напоминания о вопросах будут приходить только в это время.", bad=False)
+
+
+@router.post("/app/move/{employee_id}")
+def move_newcomer(employee_id: int, init_data: str = Form(""), workplace_id: str = Form("")):
+    try:
+        user_id = check_init_data(init_data, cfg.MAX_BOT_TOKEN)
+    except ValueError as e:
+        return refused(e)
+    recruiter = db.query_one("SELECT * FROM recruiters WHERE max_user_id = ?", (user_id,))
+    if recruiter is None:
+        return view(user_id, ONLY_RECRUITERS, status=403)
+    employee = db.query_one("SELECT * FROM employees WHERE id = ? AND recruiter_id = ?", (employee_id, recruiter["id"]))
+    if employee is None:
+        return view(user_id, "Этот новичок закреплён за другим рекрутером.", status=403)
+    if workplace_id and not (workplace_id.isdigit()
+                             and db.query_one("SELECT 1 FROM workplaces WHERE id = ?", (int(workplace_id),))):
+        return view(user_id, "Такого места работы нет.")
+    hr.change_workplace(employee_id, int(workplace_id) if workplace_id else None)
+    return view(user_id, f"{employee['full_name']}: место работы изменено.", bad=False)
 
 
 def refused(error: ValueError) -> HTMLResponse:
@@ -161,21 +203,30 @@ def view(user_id: int, message: str = "", bad: bool = True, typed: tuple[int, st
 
 
 def recruiter_part(recruiter) -> dict:
+    workplaces = db.query("SELECT * FROM workplaces ORDER BY name")
     employees = db.query(
         "SELECT e.*, (SELECT COUNT(*) FROM sent_steps s WHERE s.employee_id = e.id AND s.status != 'skipped')"
         " AS steps_sent FROM employees e WHERE e.recruiter_id = ? ORDER BY e.start_date DESC, e.id DESC",
         (recruiter["id"],))
     newcomers = [{
         "employee": e,
+        "workplace": next((w["name"] for w in workplaces if w["id"] == e["workplace_id"]), ""),
         "stage": hr._stage(e),
         "flags": db.query("SELECT * FROM pulse WHERE employee_id = ? AND risk >= 1 ORDER BY id DESC LIMIT 3",
                           (e["id"],)),
         "answers": db.query("SELECT * FROM answers WHERE employee_id = ? ORDER BY id DESC LIMIT 5", (e["id"],)),
     } for e in employees]
     questions = db.query(
-        "SELECT q.*, e.full_name FROM escalations q JOIN employees e ON e.id = q.employee_id"
+        "SELECT q.*, e.full_name, w.name AS workplace_name FROM escalations q JOIN employees e ON e.id = q.employee_id"
+        " LEFT JOIN workplaces w ON w.id = e.workplace_id"
         " WHERE e.recruiter_id = ? AND q.status = 'open' ORDER BY q.id", (recruiter["id"],))
-    return {"newcomers": newcomers, "questions": questions, "digest": hr.digest_text(recruiter["id"])}
+    blocks: dict[str, list] = {}
+    for q in questions:
+        blocks.setdefault(q["workplace_name"] or "Место работы не указано", []).append((q, hr.question_state(q)))
+    schedule = hours.of_recruiter(recruiter)
+    return {"newcomers": newcomers, "questions": questions, "blocks": blocks, "digest": hr.digest_text(recruiter["id"]),
+            "workplaces": workplaces, "zones": hours.TIMEZONES, "day_names": hours.DAY_NAMES,
+            "my_days": hours.parse_days(recruiter["work_days"]), "my_schedule": schedule.describe()}
 
 
 def newcomer_part(employee) -> dict:

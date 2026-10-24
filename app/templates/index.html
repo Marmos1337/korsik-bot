@@ -9,10 +9,11 @@
 
 {% if employees %}
 <table>
-  <tr><th>ФИО</th><th>Выход</th><th>Часовой пояс</th><th>Теги</th><th>Рекрутер</th><th>В боте</th><th>Шагов</th><th>Вопросов</th><th>Красных флагов</th></tr>
+  <tr><th>ФИО</th><th>Место работы</th><th>Выход</th><th>Часовой пояс</th><th>Теги</th><th>Рекрутер</th><th>В боте</th><th>Шагов</th><th>Вопросов</th><th>Красных флагов</th></tr>
   {% for e in employees %}
   <tr>
     <td><a href="/employees/{{ e.id }}">{{ e.full_name }}</a></td>
+    <td>{{ e.workplace_name or "не указано" }}</td>
     <td>{{ e.start_date }}</td>
     <td>{{ e.timezone|zone }}</td>
     <td>{{ e.tags }}</td>
@@ -33,19 +34,31 @@
   <label>ФИО <input name="full_name" required maxlength="200" size="40"></label>
   <label>Имя для обращения <input name="first_name" maxlength="200"> <span class="muted">если пусто, берём второе слово ФИО</span></label>
   <label>Дата выхода <input type="date" name="start_date" required></label>
+  {% if workplaces %}
+  <label>Место работы
+    <select name="workplace_id" required>
+      <option value="">выберите</option>
+      {% for w in workplaces %}<option value="{{ w.id }}">{{ w.name }}{% if w.tags %} ({{ w.tags }}){% endif %}, {{ w|schedule }}</option>{% endfor %}
+    </select>
+    <span class="muted">теги, часовой пояс и рабочие часы возьмём из места работы</span>
+  </label>
+  {% else %}
+  <p class="muted">Мест работы пока нет: <a href="/workplaces">заведите их</a>, тогда теги, пояс и рабочие часы будут подставляться сами.</p>
+  {% endif %}
   <label>Часовой пояс
     <select name="timezone">
+      {% if workplaces %}<option value="workplace" selected>как у места работы</option>{% endif %}
       {% for name, label in zones.items() %}
-      <option value="{{ name }}"{% if name == default_zone %} selected{% endif %}>{{ label }}, {{ name }}</option>
+      <option value="{{ name }}"{% if name == default_zone and not workplaces %} selected{% endif %}>{{ label }}, {{ name }}</option>
       {% endfor %}
     </select>
   </label>
-  <label>Теги через запятую <input name="tags" maxlength="200" size="30">
+  <label>{% if workplaces %}Дополнительные теги{% else %}Теги{% endif %} через запятую <input name="tags" maxlength="200" size="30">
     {% if tags %}<span class="muted">уже есть в сценарии и документах: {{ tags|join(", ") }}</span>{% endif %}
   </label>
   <label>Рекрутер
     <select name="recruiter_id">
-      <option value="">не назначен</option>
+      <option value="">{% if workplaces %}рекрутер этого места работы{% else %}не назначен{% endif %}</option>
       {% for r in recruiters %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
     </select>
   </label>

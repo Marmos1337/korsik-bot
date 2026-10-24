@@ -2,15 +2,18 @@
 
 {% if recruiter %}
 <h2>Вопросы новичков</h2>
-{% for q in questions %}
-<form method="post" action="/app/answer/{{ q.id }}">
-  <p><b>{{ q.full_name }}</b>, {{ q.created_at|local }}</p>
+{% for place, items in blocks.items() %}
+<h3>{{ place }}</h3>
+{% for q, state in items %}
+<form method="post" action="/app/answer/{{ q.id }}"{% if state.overdue %} class="flash bad"{% endif %}>
+  <p><b>{{ q.full_name }}</b>, {{ q.created_at|local }}, ждёт {{ state.waited }}</p>
   <p class="text">{{ q.question }}</p>
   <input type="hidden" name="employee_id" value="{{ q.employee_id }}">
   <input type="hidden" name="asked_at" value="{{ q.created_at }}">
   <textarea name="answer" required rows="3" maxlength="3000">{% if typed[0] == q.id %}{{ typed[1] }}{% endif %}</textarea>
   <button>Отправить ответ</button>
 </form>
+{% endfor %}
 {% else %}
 <p class="muted">Открытых вопросов нет.</p>
 {% endfor %}
@@ -19,7 +22,16 @@
 {% for n in newcomers %}
 {% set e = n.employee %}
 <details>
-  <summary>{{ e.full_name }}: {{ n.stage }}{% if n.flags %}, есть флаги{% endif %}</summary>
+  <summary>{{ e.full_name }}{% if n.workplace %} ({{ n.workplace }}){% endif %}: {{ n.stage }}{% if n.flags %}, есть флаги{% endif %}</summary>
+  {% if workplaces %}
+  <form method="post" action="/app/move/{{ e.id }}">
+    <select name="workplace_id">
+      <option value="">место работы не указано</option>
+      {% for w in workplaces %}<option value="{{ w.id }}"{% if w.id == e.workplace_id %} selected{% endif %}>{{ w.name }}</option>{% endfor %}
+    </select>
+    <button>Сменить место работы</button>
+  </form>
+  {% endif %}
   <table>
     <tr><th>Выход</th><td>{{ e.start_date }}</td></tr>
     <tr><th>Часовой пояс</th><td>{{ e.timezone }}</td></tr>
@@ -50,6 +62,17 @@
 
 <h2>Сводка</h2>
 <p class="text">{{ digest }}</p>
+
+<h2>Мой график</h2>
+<p>Сейчас: {{ my_schedule }}. Напоминания о вопросах без ответа приходят только в это время.</p>
+<form method="post" action="/app/profile">
+  <select name="timezone">
+    {% for name, label in zones.items() %}<option value="{{ name }}"{% if name == recruiter.timezone %} selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+  <p>{% for name in day_names %}<label><input type="checkbox" name="days" value="{{ loop.index }}"{% if loop.index in my_days %} checked{% endif %}> {{ name }}</label> {% endfor %}</p>
+  <p>С <input name="work_start" value="{{ recruiter.work_start }}" size="5"> до <input name="work_end" value="{{ recruiter.work_end }}" size="5"></p>
+  <button>Сохранить график</button>
+</form>
 {% endif %}
 
 {% if employee %}
@@ -69,7 +92,7 @@
 <p>
   <span class="muted">{{ q.created_at|local(employee.timezone) }}</span><br>
   <b class="text">{{ q.question }}</b><br>
-  {% if q.status == "answered" %}Ответ: <span class="text">{{ q.answer }}</span>{% else %}<span class="muted">ждёт ответа</span>{% endif %}
+  {% if q.status == "answered" and q.delivered_at %}Ответ: <span class="text">{{ q.answer }}</span>{% else %}<span class="muted">ждёт ответа</span>{% endif %}
 </p>
 {% else %}
 <p class="muted">Вопросов к HR пока не было. Если бот не найдёт ответ в документах, вопрос появится здесь.</p>

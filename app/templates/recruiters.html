@@ -1,19 +1,26 @@
 {% extends "base.html" %}
+{% from "_forms.html" import schedule_fields %}
 {% block title %}Рекрутеры{% endblock %}
 {% block content %}
 <h1>Рекрутеры</h1>
 {% if recruiters %}
 <table>
-  <tr><th>Имя</th><th>МАКС</th><th>Новичков</th><th>Ссылка для привязки</th></tr>
+  <tr><th>Имя</th><th>Места работы</th><th>График</th><th>Сейчас</th><th>МАКС</th><th>Новичков</th><th>Открытых вопросов</th><th>Ответ обычно за</th><th>Ссылка для привязки</th></tr>
   {% for r in recruiters %}
+  {% set st = stats[r.id] %}
   <tr>
-    <td>{{ r.name }}</td>
-    <td>{% if r.max_user_id %}привязан{% else %}не привязан{% endif %}</td>
+    <td><a href="/recruiters/{{ r.id }}">{{ r.name }}</a></td>
+    <td>{{ r.workplace_names or "не выбраны" }}</td>
+    <td>{{ r|schedule }}, {{ r.timezone|zone }}</td>
+    <td>{% if working[r.id] %}<span class="ok">работает</span>{% else %}не работает{% endif %}</td>
+    <td>{% if r.max_user_id %}привязан{% else %}<span class="red">не привязан</span>{% endif %}</td>
     <td>{{ r.employees }}</td>
+    <td>{{ st.open }}{% if st.overdue %} <span class="red">(просрочено {{ st.overdue }})</span>{% endif %}</td>
+    <td>{{ st.median or "ответов ещё не было" }}</td>
     <td>
       {% if links[r.id] %}
       <a href="{{ links[r.id] }}">{{ links[r.id] }}</a><br>
-      <img src="/recruiters/{{ r.id }}/qr.png" width="140" height="140" alt="QR-код ссылки для {{ r.name }}">
+      <img src="/recruiters/{{ r.id }}/qr.png" width="120" height="120" alt="QR-код ссылки для {{ r.name }}">
       {% else %}имя бота ещё не получено от МАКС{% endif %}
     </td>
   </tr>
@@ -26,7 +33,13 @@
 <h2>Добавить рекрутера</h2>
 <form method="post" action="/recruiters">
   <label>Имя <input name="name" required maxlength="200"></label>
+  {{ schedule_fields(zones, default_zone, [1, 2, 3, 4, 5], "09:00", "18:00") }}
+  {% if workplaces %}
+  <p>Места работы, новичков которых он ведёт:
+    {% for w in workplaces %}<label class="inline"><input type="checkbox" name="workplaces" value="{{ w.id }}"> {{ w.name }}</label>{% endfor %}
+  </p>
+  {% endif %}
   <button>Добавить</button>
 </form>
-<p class="muted">Рекрутер открывает свою ссылку в МАКС, и бот присылает ему вопросы новичков и красные флаги.</p>
+<p class="muted">Рекрутер открывает свою ссылку в МАКС, и бот присылает ему вопросы новичков и красные флаги. Если он не ответил, бот напоминает раз в час, до пяти раз, и только в его рабочее время.</p>
 {% endblock %}

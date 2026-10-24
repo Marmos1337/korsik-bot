@@ -10,7 +10,28 @@ CREATE TABLE IF NOT EXISTS recruiters (
     name TEXT NOT NULL,
     max_user_id INTEGER UNIQUE,
     invite_code TEXT UNIQUE NOT NULL,
+    created_at TEXT NOT NULL,
+    timezone TEXT NOT NULL DEFAULT 'Europe/Moscow',
+    work_days TEXT NOT NULL DEFAULT '1,2,3,4,5',
+    work_start TEXT NOT NULL DEFAULT '09:00',
+    work_end TEXT NOT NULL DEFAULT '18:00'
+);
+
+CREATE TABLE IF NOT EXISTS workplaces (
+    id INTEGER PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    tags TEXT NOT NULL DEFAULT '',
+    timezone TEXT NOT NULL,
+    work_days TEXT NOT NULL DEFAULT '1,2,3,4,5',
+    work_start TEXT NOT NULL DEFAULT '09:00',
+    work_end TEXT NOT NULL DEFAULT '18:00',
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS recruiter_workplaces (
+    recruiter_id INTEGER NOT NULL REFERENCES recruiters(id) ON DELETE CASCADE,
+    workplace_id INTEGER NOT NULL REFERENCES workplaces(id) ON DELETE CASCADE,
+    PRIMARY KEY (recruiter_id, workplace_id)
 );
 
 CREATE TABLE IF NOT EXISTS employees (
@@ -27,7 +48,8 @@ CREATE TABLE IF NOT EXISTS employees (
     linked_at TEXT,
     time_shift INTEGER NOT NULL DEFAULT 0,
     waiting TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    workplace_id INTEGER REFERENCES workplaces(id)
 );
 
 CREATE TABLE IF NOT EXISTS sent_steps (
@@ -77,7 +99,10 @@ CREATE TABLE IF NOT EXISTS escalations (
     answer TEXT,
     answered_by TEXT,
     created_at TEXT NOT NULL,
-    answered_at TEXT
+    answered_at TEXT,
+    delivered_at TEXT,
+    reminders INTEGER NOT NULL DEFAULT 0,
+    reminded_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS documents (
@@ -122,8 +147,33 @@ def init_db() -> None:
     try:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        _migrate(conn)
     finally:
         conn.close()
+
+
+# columns added after the first release; CREATE TABLE IF NOT EXISTS leaves old tables as they were
+NEW_COLUMNS = {
+    "recruiters": [("timezone", "TEXT NOT NULL DEFAULT 'Europe/Moscow'"),
+                   ("work_days", "TEXT NOT NULL DEFAULT '1,2,3,4,5'"),
+                   ("work_start", "TEXT NOT NULL DEFAULT '09:00'"),
+                   ("work_end", "TEXT NOT NULL DEFAULT '18:00'")],
+    "employees": [("workplace_id", "INTEGER REFERENCES workplaces(id)")],
+    "escalations": [("delivered_at", "TEXT"), ("reminders", "INTEGER NOT NULL DEFAULT 0"), ("reminded_at", "TEXT")],
+}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    with conn:
+        for table, columns in NEW_COLUMNS.items():
+            have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for name, kind in columns:
+                if name in have:
+                    continue
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+                if (table, name) == ("escalations", "delivered_at"):
+                    # answers given before this column existed went out at once
+                    conn.execute("UPDATE escalations SET delivered_at = answered_at WHERE status = 'answered'")
 
 
 def query(sql: str, params=()) -> list[sqlite3.Row]:

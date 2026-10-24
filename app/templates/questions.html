@@ -2,13 +2,15 @@
 {% block title %}Вопросы{% endblock %}
 {% block content %}
 <h1>Вопросы без ответа в документах</h1>
-{% for q, context in opened %}
-<div id="q{{ q.id }}">
+{% for place, items in blocks.items() %}
+<h2>{{ place }}: {{ items|length }}</h2>
+{% for q, context, state in items %}
+<div id="q{{ q.id }}"{% if state.overdue %} class="overdue"{% endif %}>
   <h3>{{ q.created_at|local }}, <a href="/employees/{{ q.employee_id }}">{{ q.full_name }}</a>{% if q.tags %} ({{ q.tags }}){% endif %}</h3>
-  <p class="muted">
-    {% if not q.recruiter_name %}рекрутер не назначен
-    {% elif q.recruiter_linked %}рекрутер {{ q.recruiter_name }} получил этот вопрос в МАКС
-    {% else %}рекрутер {{ q.recruiter_name }} ещё не привязал МАКС, вопрос виден только здесь{% endif %}
+  <p>
+    Ждёт ответа <b{% if state.overdue %} class="red"{% endif %}>{{ state.waited }}</b>.
+    {% if q.recruiter_name %}Рекрутер {{ q.recruiter_name }}{% if q.recruiter_linked %}: получил вопрос в МАКС, напоминаний {{ state.reminders }} из 5{% endif %}.{% endif %}
+    {% for note in state.notes %}<br><span class="red">{{ note }}</span>{% endfor %}
   </p>
   <p class="text"><b>{{ q.question }}</b></p>
   {% if context %}
@@ -27,21 +29,40 @@
     <button>Отправить</button>
   </form>
 </div>
+{% endfor %}
 {% else %}
 <p class="muted">Открытых вопросов нет.</p>
 {% endfor %}
 
-{% if answered %}
-<h2>Недавние ответы</h2>
+{% if waiting %}
+<h2>Ответы ждут рабочего времени новичка</h2>
 <table>
-  <tr><th>Новичок</th><th>Вопрос</th><th>Ответ</th><th>Кто ответил</th><th>Когда</th></tr>
-  {% for q in answered %}
+  <tr><th>Новичок</th><th>Вопрос</th><th>Ответ</th><th>Уйдёт</th><th></th></tr>
+  {% for q, when in waiting %}
   <tr>
     <td><a href="/employees/{{ q.employee_id }}">{{ q.full_name }}</a></td>
     <td class="text">{{ q.question }}</td>
     <td class="text">{{ q.answer }}</td>
+    <td>{{ when }} по его времени</td>
+    <td><form method="post" action="/questions/{{ q.id }}/send-now"><button>Отправить сейчас</button></form></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if answered %}
+<h2>Недавние ответы</h2>
+<table>
+  <tr><th>Новичок</th><th>Место работы</th><th>Вопрос</th><th>Ответ</th><th>Кто ответил</th><th>Когда</th><th>За сколько</th></tr>
+  {% for q in answered %}
+  <tr>
+    <td><a href="/employees/{{ q.employee_id }}">{{ q.full_name }}</a></td>
+    <td>{{ q.workplace_name or "" }}</td>
+    <td class="text">{{ q.question }}</td>
+    <td class="text">{{ q.answer }}</td>
     <td>{{ q.answered_by }}</td>
     <td>{{ q.answered_at|local }}</td>
+    <td>{{ took.get(q.id, "") }}</td>
   </tr>
   {% endfor %}
 </table>
