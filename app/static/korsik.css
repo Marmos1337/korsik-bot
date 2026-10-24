@@ -137,12 +137,9 @@ a.ecard:hover { text-decoration: none; transform: translateY(-3px); box-shadow: 
 
 /* buttons: one main action per group */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 24px; border-radius: 999px; border: 0; cursor: pointer; font: 600 16px/20px "Inter", sans-serif; background: var(--cool); color: var(--on-gradient); text-decoration: none; white-space: nowrap; transition: transform .2s var(--ease), box-shadow .2s var(--ease), background-color .2s; }
-.btn:hover { text-decoration: none; transform: translateY(-1px); box-shadow: var(--glow); }
 .btn:active { transform: none; box-shadow: inset 0 0 0 999px var(--pressed); }
 .btn.secondary { background: var(--surface); color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
-.btn.secondary:hover { background: var(--raised); box-shadow: inset 0 0 0 1px var(--border); }
 .btn.ghost { background: transparent; color: var(--text-2); min-height: 48px; padding: 0 12px; font-weight: 500; }
-.btn.ghost:hover { background: var(--raised); color: var(--text); box-shadow: none; transform: none; }
 .btn.compact { min-height: 48px; padding: 0 20px; font-size: 15px; }
 .btn.wide { width: 100%; }
 .btn:disabled { background: var(--raised); color: var(--disabled); cursor: default; transform: none; box-shadow: none; }
@@ -168,7 +165,6 @@ form.inline { display: inline; margin: 0; }
 .toggle { position: relative; }
 .toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .toggle span { display: inline-flex; align-items: center; justify-content: center; min-width: 48px; min-height: 48px; padding: 0 14px; border-radius: 999px; background: var(--tile); color: var(--text-2); font-weight: 500; cursor: pointer; transition: background .2s, color .2s, transform .15s var(--ease); }
-.toggle span:hover { background: var(--raised); color: var(--text); }
 .toggle span:active { transform: scale(.94); }
 .toggle input:checked + span { background: var(--cool); color: var(--on-gradient); }
 .toggle input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -294,7 +290,6 @@ td.num { font-variant-numeric: tabular-nums; }
 .task.late { background: var(--error-bg); }
 .tick { flex: none; width: 32px; height: 32px; border-radius: 999px; border: 2px solid var(--border); background: var(--surface); color: transparent; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: transform .2s var(--ease), background .2s, border-color .2s, color .2s; }
 span.tick { cursor: default; }
-button.tick:hover { border-color: var(--lavender); color: var(--lavender); transform: scale(1.08); }
 .task.done .tick { background: var(--cool); border-color: transparent; color: var(--on-gradient); animation: pop .35s var(--ease); }
 .task.late .tick { border-color: var(--error); }
 .add-task { display: grid; grid-template-columns: minmax(0, 1fr) 170px auto; gap: 8px; align-items: center; }
@@ -309,25 +304,18 @@ button.tick:hover { border-color: var(--lavender); color: var(--lavender); trans
 .grid-2x { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .tile-link { margin: 0; }
 .tile-link button { width: 100%; text-align: left; border: 0; cursor: pointer; background: var(--surface); box-shadow: var(--shadow); border-radius: 24px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; color: var(--text); font: inherit; transition: transform .25s var(--ease), box-shadow .25s var(--ease); }
-.tile-link button:hover { transform: translateY(-2px); box-shadow: var(--shadow-up); }
 .tile-link b { font: 700 28px/36px "Grandis", "Inter", sans-serif; }
 .tile-link span { font-size: 14px; line-height: 20px; color: var(--text-2); }
 
 /* «тяжело?»: a soft warm card that is easy to press and easy to ignore */
-.talk { margin: 0; border-radius: 24px; box-shadow: var(--shadow); background: linear-gradient(135deg, rgba(255, 179, 192, 0.28), rgba(138, 139, 253, 0.22)); }
-.talk[open] { background: var(--surface); }
-.talk > .talk-btn { box-shadow: none; background: none; }
-.talk[open] > .talk-btn:hover { transform: none; }
-.talk-confirm { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 12px; }
-.talk-btn { width: 100%; border: 0; cursor: pointer; text-align: left; border-radius: 24px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; font: inherit; color: var(--text); transition: transform .25s var(--ease); }
-.talk-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-up); }
+.talk { margin: 0; }
+.talk-btn { width: 100%; border: 0; cursor: pointer; text-align: left; border-radius: 24px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; font: inherit; color: var(--text); background: linear-gradient(135deg, rgba(255, 179, 192, 0.28), rgba(138, 139, 253, 0.22)); box-shadow: var(--shadow); transition: transform .25s var(--ease), box-shadow .25s var(--ease); }
 .talk-btn b { font-weight: 600; }
 .talk-btn span { font-size: 14px; line-height: 20px; color: var(--text-2); }
 
 /* lessons and their one question */
 .lesson.passed > summary b { color: var(--text-2); }
 .option { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--tile); cursor: pointer; transition: background .2s; }
-.option:hover { background: var(--raised); }
 .option input { accent-color: var(--lavender); width: 20px; height: 20px; margin: 0; flex: none; }
 .option:has(input:checked) { background: var(--cool-soft); }
 .quiz-preview { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 16px; background: var(--tile); }
@@ -340,7 +328,7 @@ button.tick:hover { border-color: var(--lavender); color: var(--lavender); trans
 @keyframes fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(168, 43, 61, 0.35); } 50% { box-shadow: 0 0 0 6px rgba(168, 43, 61, 0); } }
 @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-.page > *, .app main > *, .grid > *, .kpis > *, .list > * { animation: rise .45s var(--ease) both; }
+.page > *, .app main:not(.ready) > *, .grid > *, .kpis > *, .list > * { animation: rise .45s var(--ease) both; }
 .page > :nth-child(2), .app main > :nth-child(2), .grid > :nth-child(2), .kpis > :nth-child(2), .list > :nth-child(2) { animation-delay: .05s; }
 .page > :nth-child(3), .app main > :nth-child(3), .grid > :nth-child(3), .kpis > :nth-child(3), .list > :nth-child(3) { animation-delay: .10s; }
 .page > :nth-child(4), .app main > :nth-child(4), .grid > :nth-child(4), .kpis > :nth-child(4), .list > :nth-child(4) { animation-delay: .15s; }
@@ -387,4 +375,31 @@ details.card[open] > summary { margin-bottom: 12px; }
 .tasks .task { background: var(--surface); box-shadow: var(--shadow); border-radius: 24px; padding: 16px 20px; }
 .tasks .task.late { background: var(--error-bg); }
 .option input { appearance: none; -webkit-appearance: none; width: 24px; height: 24px; border-radius: 999px; border: 2px solid var(--border); background: var(--surface); transition: background .2s, border-color .2s, box-shadow .2s; }
-.option input:checked { border-color: transparent; background: var(--cool); box-shadow: inset 0 0 0 5px var(--surface); }
+.option input:checked { border-color: var(--lavender); background: radial-gradient(circle, var(--lavender) 0 5px, var(--surface) 5.6px); }
+
+/* hover effects only with a mouse: on a phone a tapped element keeps :hover and stays lifted or scaled */
+@media (hover: hover) {
+  .btn:hover { text-decoration: none; transform: translateY(-1px); box-shadow: var(--glow); }
+  .btn.secondary:hover { background: var(--raised); box-shadow: inset 0 0 0 1px var(--border); }
+  .btn.ghost:hover { background: var(--raised); color: var(--text); box-shadow: none; transform: none; }
+  .toggle span:hover { background: var(--raised); color: var(--text); }
+  button.tick:hover { border-color: var(--lavender); color: var(--lavender); transform: scale(1.08); }
+  .tile-link button:hover { transform: translateY(-2px); box-shadow: var(--shadow-up); }
+  .talk-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-up); }
+  .option:hover { background: var(--raised); }
+}
+.app main.ready *, .app main.ready *::before, .app main.ready *::after { animation: none !important; }
+.app main.ready details.opening[open] > summary ~ * { animation: rise .3s var(--ease) both !important; }
+.task.done .tick { border-width: 0; }
+
+/* confirmation sheet from the bottom of the screen */
+.sheet-back { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; background: rgba(17, 19, 31, 0); transition: background .25s var(--ease); }
+.sheet-back.open { background: rgba(17, 19, 31, 0.45); }
+.sheet { width: 100%; max-width: 430px; background: var(--surface); border-radius: 28px 28px 0 0; padding: 28px 20px calc(20px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; box-shadow: 0 -12px 40px rgba(17, 19, 31, 0.18); transform: translateY(100%); transition: transform .3s var(--ease); }
+.sheet-back.open .sheet { transform: none; }
+.sheet::before { content: ""; align-self: center; width: 40px; height: 4px; border-radius: 999px; background: var(--border); margin: -12px 0 4px; }
+.sheet b { font: 700 20px/28px "Grandis", "Inter", sans-serif; }
+.sheet p { color: var(--text-2); }
+.sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+.sheet-actions .btn { width: 100%; }
+@media (prefers-reduced-motion: reduce) { .sheet, .sheet-back { transition: none; } }

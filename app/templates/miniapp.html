@@ -15,21 +15,65 @@
 <script>
 const initData = window.WebApp ? window.WebApp.initData : "";
 const main = document.getElementById("main");
+let shown = false;
 
 async function send(url, body) {
   body.set("init_data", initData);
+  // after the first screen nothing slides in again: a tick or an answer only changes what changed
+  if (shown) main.classList.add("ready");
+  const tab = body.get("tab");
+  const y = window.scrollY;
   try {
     const response = await fetch(url, {method: "POST", body: body});
     main.innerHTML = await response.text();
   } catch (error) {
     main.innerHTML = "<p class=\"flash bad\">Нет связи с сервером. Попробуйте ещё раз.</p>";
   }
+  shown = true;
+  window.scrollTo(0, tab && url === "/app/view" ? 0 : y);
+}
+
+function confirmSheet(form) {
+  const back = document.createElement("div");
+  back.className = "sheet-back";
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.setAttribute("role", "dialog");
+  const title = document.createElement("b");
+  title.textContent = form.dataset.confirmTitle;
+  const text = document.createElement("p");
+  text.textContent = form.dataset.confirm;
+  const no = document.createElement("button");
+  no.className = "btn secondary";
+  no.textContent = form.dataset.confirmNo || "Отмена";
+  const yes = document.createElement("button");
+  yes.className = "btn";
+  yes.textContent = form.dataset.confirmYes || "Да";
+  const row = document.createElement("div");
+  row.className = "sheet-actions";
+  row.append(no, yes);
+  sheet.append(title, text, row);
+  back.append(sheet);
+  document.body.append(back);
+  requestAnimationFrame(() => back.classList.add("open"));
+  const close = () => { back.classList.remove("open"); setTimeout(() => back.remove(), 250); };
+  no.addEventListener("click", close);
+  back.addEventListener("click", (event) => { if (event.target === back) close(); });
+  yes.addEventListener("click", () => { close(); send(form.getAttribute("action"), new FormData(form)); });
 }
 
 main.addEventListener("submit", (event) => {
   event.preventDefault();
-  send(event.target.getAttribute("action"), new FormData(event.target));
+  if (event.target.dataset.confirm) confirmSheet(event.target);
+  else send(event.target.getAttribute("action"), new FormData(event.target));
 });
+
+// a lesson the newcomer opens still unfolds smoothly, the rest of the screen stays still
+main.addEventListener("toggle", (event) => {
+  if (!event.target.open) return;
+  event.target.classList.add("opening");
+  setTimeout(() => event.target.classList.remove("opening"), 400);
+}, true);
 
 send("/app/view", new FormData());
 </script>

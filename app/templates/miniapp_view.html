@@ -201,16 +201,9 @@
   {% endif %}
 </section>
 
-<details class="talk">
-  <summary class="talk-btn"><b>{% if ty %}Тебе тяжело?{% else %}Вам тяжело?{% endif %}</b><span>Можно выговориться, а рекрутер напишет лично</span></summary>
-  <div class="talk-confirm">
-    <p class="small">{% if ty %}Позвать рекрутера, чтобы написал тебе лично? А я пока выслушаю.{% else %}Позвать рекрутера, чтобы написал вам лично? А я пока выслушаю.{% endif %}</p>
-    <div class="grid-2x">
-      <form method="post" action="/app/view"><input type="hidden" name="tab" value="home"><button class="btn secondary">Не сейчас</button></form>
-      <form method="post" action="/app/talk"><button class="btn">Да, позвать</button></form>
-    </div>
-  </div>
-</details>
+<form method="post" action="/app/talk" class="talk" data-confirm-title="Позвать рекрутера?" data-confirm="{% if ty %}Рекрутер напишет тебе лично, а я пока выслушаю. Можно рассказать всё как есть.{% else %}Рекрутер напишет вам лично, а я пока выслушаю. Можно рассказать всё как есть.{% endif %}" data-confirm-yes="Да, позвать" data-confirm-no="Не сейчас">
+  <button class="talk-btn"><b>{% if ty %}Тебе тяжело?{% else %}Вам тяжело?{% endif %}</b><span>Можно выговориться, а рекрутер напишет лично</span></button>
+</form>
 
 <section class="section">
   <h2 class="section-title">Коротко</h2>
