@@ -5,7 +5,7 @@
 <h1>Места работы</h1>
 <p class="muted">Место работы задаёт новичку теги (по ним приходят шаги сценария и документы), часовой пояс и рабочие часы. В рабочие часы новичок получает ответы HR и пропущенные обязательные шаги.</p>
 {% if workplaces %}
-<table>
+<div class="table"><table>
   <tr><th>Название</th><th>Теги</th><th>Часовой пояс</th><th>Рабочее время</th><th>Новичков</th><th>Рекрутеры</th></tr>
   {% for w in workplaces %}
   <tr>
@@ -13,7 +13,7 @@
     <td>{{ w.employees }}</td><td>{{ w.recruiter_names or "никто" }}</td>
   </tr>
   {% endfor %}
-</table>
+</table></div>
 {% for w in workplaces %}
 <details>
   <summary>Изменить «{{ w.name }}»</summary>
@@ -25,7 +25,7 @@
     <button>Сохранить</button>
   </form>
   {% if not w.employees %}
-  <form method="post" action="/workplaces/{{ w.id }}/delete"><button>Удалить</button></form>
+  <form method="post" action="/workplaces/{{ w.id }}/delete"><button class="secondary compact">Удалить</button></form>
   {% endif %}
 </details>
 {% endfor %}
@@ -34,7 +34,7 @@
 {% endif %}
 
 <h2>Добавить место работы</h2>
-<form method="post" action="/workplaces">
+<form method="post" action="/workplaces" class="block">
   <label>Название <input name="name" required maxlength="200" placeholder="Завод GrPP"></label>
   <label>Теги через запятую <input name="tags" maxlength="200">
     {% if tags %}<span class="muted">уже есть в сценарии и документах: {{ tags|join(", ") }}</span>{% endif %}

@@ -1,0 +1,163 @@
+/* Korsik design system v1: tokens from design_tokens.json, one structure for the light and the dark theme */
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Regular.otf") format("opentype"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-Medium.otf") format("opentype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("fonts/Inter-SemiBold.otf") format("opentype"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Grandis Extended"; src: url("fonts/GrandisExtended-Bold.ttf") format("truetype"); font-weight: 700; font-display: swap; }
+
+:root {
+  --orchid: #D88DEE; --mint: #9DDBD9; --lavender: #8A8BFD; --coral: #FD6F69; --blue: #005593;
+  --cool: linear-gradient(90deg, #9DDBD9 0%, #8A8BFD 100%);
+  --warm: linear-gradient(135deg, #D88DEE 0%, #FD6F69 70%, #FD6F69 100%);
+  --background: #F6F7FC; --surface: #FFFFFF; --surface-raised: #EEF0FA;
+  --text: #1B1D35; --text-2: #585D78; --border: #D8DDEB; --link: #005593; --focus: #005593;
+  --on-gradient: #1B1D35; --disabled: #747B94;
+  --success: #176B50; --success-bg: #E7F6EE; --warning: #795015; --warning-bg: #FFF2D8;
+  --error: #A82B3D; --error-bg: #FFE9EE; --info: #005593; --info-bg: #E8F1FA;
+  --pressed: rgba(27, 29, 53, 0.08);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #11131F; --surface: #1C2032; --surface-raised: #272D43;
+    --text: #F5F6FF; --text-2: #B9C0D6; --border: #414A63; --link: #A9CBF5; --focus: #9DDBD9;
+    --disabled: #8E97B2;
+    --success: #98E0BA; --success-bg: #183A2C; --warning: #F5D28C; --warning-bg: #3C301B;
+    --error: #FFB3C0; --error-bg: #422330; --info: #A9CBF5; --info-bg: #1C324D;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--background); color: var(--text);
+  font: 400 16px/24px "Inter", system-ui, sans-serif;
+}
+.page { max-width: 72rem; margin: 0 auto; padding: 0 20px 48px; }
+h1, h2, h3 { font-family: "Grandis Extended", "Inter", sans-serif; font-weight: 700; margin: 32px 0 12px; overflow-wrap: break-word; }
+h1 { font-size: 32px; line-height: 40px; margin-top: 24px; }
+h2 { font-size: 20px; line-height: 28px; }
+h3 { font-size: 16px; line-height: 24px; font-family: "Inter", sans-serif; font-weight: 600; }
+a { color: var(--link); }
+p { margin: 8px 0; }
+.text { white-space: pre-wrap; overflow-wrap: break-word; }
+.muted { color: var(--text-2); }
+small, .caption { font-size: 12px; line-height: 16px; }
+
+/* header with the gradient logo on a calm dark pill, so its white letters stay readable */
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 0; }
+.logo { display: inline-flex; align-items: center; background: #1B1D35; border-radius: 999px; padding: 8px 16px; }
+.logo img { height: 28px; width: auto; display: block; }
+nav { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+nav a {
+  display: inline-flex; align-items: center; min-height: 40px; padding: 0 16px; border-radius: 999px;
+  color: var(--text); text-decoration: none; font-weight: 500; font-size: 14px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+nav a[aria-current="page"] { background: var(--cool); color: var(--on-gradient); border-color: transparent; }
+nav a .count { margin-left: 6px; font-weight: 600; }
+nav form { margin: 0 0 0 auto; }
+
+/* cards */
+.card, details, form.block {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 20px; margin: 12px 0;
+}
+details summary { cursor: pointer; font-weight: 600; min-height: 24px; }
+details[open] summary { margin-bottom: 12px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 12px 0 24px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 16px 20px; font-size: 14px; line-height: 20px; color: var(--text-2); }
+.stat b { display: block; font: 700 28px/36px "Grandis Extended", "Inter", sans-serif; color: var(--text); }
+.stat.accent { background: var(--cool); border-color: transparent; color: var(--on-gradient); }
+.stat.accent b { color: var(--on-gradient); }
+
+/* tables live in a card and scroll sideways on a phone instead of breaking the page */
+.table { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 24px; margin: 12px 0 24px; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; line-height: 22px; }
+th, td { text-align: left; vertical-align: top; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+/* break long words only when they do not fit, never letter by letter in a narrow column */
+td { overflow-wrap: break-word; min-width: 6rem; }
+td.text { min-width: 12rem; }
+th { font-size: 14px; line-height: 20px; font-weight: 500; color: var(--text-2); background: var(--surface-raised); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+
+/* buttons: one primary action per group, cool gradient with dark text */
+button, .button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 0 24px; border-radius: 999px; border: 0; cursor: pointer;
+  font: 600 16px/20px "Inter", sans-serif; text-decoration: none;
+  background: var(--cool); color: var(--on-gradient);
+}
+button:active, .button:active { box-shadow: inset 0 0 0 999px var(--pressed); }
+button.secondary, .button.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+button.compact { min-height: 48px; padding: 0 20px; }
+button.accent { background: var(--warm); }
+button:disabled { background: var(--surface-raised); color: var(--disabled); cursor: default; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* fields */
+label { display: block; margin: 12px 0; font-size: 14px; line-height: 20px; font-weight: 500; color: var(--text-2); }
+label.inline { display: inline-flex; align-items: center; gap: 8px; margin: 4px 12px 4px 0; color: var(--text); }
+input:not([type=checkbox]):not([type=radio]), select, textarea {
+  display: block; width: 100%; max-width: 32rem; margin-top: 4px; min-height: 56px; padding: 16px;
+  border-radius: 16px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: 400 16px/24px "Inter", sans-serif;
+}
+textarea { max-width: 48rem; min-height: 96px; }
+label.inline input, label.inline select { display: inline-block; width: auto; min-height: 48px; }
+input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--lavender); }
+input:user-invalid, select:user-invalid, textarea:user-invalid { border-color: var(--error); }
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.row > label { flex: 1 1 14rem; }
+
+/* status: colour plus words, never colour alone */
+.chip {
+  display: inline-flex; align-items: center; min-height: 28px; padding: 0 12px; border-radius: 999px;
+  font-size: 14px; line-height: 20px; font-weight: 500; background: var(--info-bg); color: var(--info); white-space: nowrap;
+}
+.chip.ok { background: var(--success-bg); color: var(--success); }
+.chip.warn { background: var(--warning-bg); color: var(--warning); }
+.chip.bad { background: var(--error-bg); color: var(--error); }
+.red { color: var(--error); font-weight: 600; }
+.ok { color: var(--success); }
+
+.flash { padding: 12px 16px; border-radius: 16px; background: var(--success-bg); color: var(--success); margin: 12px 0; }
+.flash.bad { background: var(--error-bg); color: var(--error); }
+.alert {
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-radius: 24px; background: var(--error-bg); color: var(--error); font-weight: 500; margin: 8px 0 16px;
+}
+.alert a { color: var(--error); font-weight: 600; }
+.overdue { border-color: var(--error) !important; box-shadow: inset 4px 0 0 var(--error); }
+tr.overdue td:first-child { box-shadow: inset 4px 0 0 var(--error); }
+
+.hero {
+  display: flex; align-items: center; gap: 16px; padding: 20px; border-radius: 24px; margin: 16px 0;
+  background: var(--cool); color: var(--on-gradient);
+}
+.hero img { width: 64px; height: 64px; border-radius: 999px; flex: none; }
+.hero h1 { margin: 0; font-size: 24px; line-height: 32px; }
+.hero p { margin: 4px 0 0; }
+.qr { background: #fff; border-radius: 16px; padding: 8px; }
+.footer { margin-top: 32px; }
+
+/* login */
+.login { max-width: 26rem; margin: 10vh auto; }
+
+/* mini app: a phone screen, 20 px side fields */
+.app { max-width: 430px; margin: 0 auto; padding: 0 20px 40px; }
+.app .head { display: flex; align-items: center; gap: 12px; padding: 16px 0 8px; }
+.app .head img { width: 48px; height: 48px; border-radius: 999px; }
+.app .head b { font: 700 20px/28px "Grandis Extended", "Inter", sans-serif; display: block; }
+.app button { width: 100%; }
+.app input:not([type=checkbox]), .app select, .app textarea { max-width: none; }
+.progress { height: 8px; border-radius: 999px; background: var(--surface-raised); overflow: hidden; margin: 8px 0; }
+.progress span { display: block; height: 100%; background: var(--cool); }
+.days { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* on a phone the menu is one row that scrolls sideways, not four rows of buttons */
+@media (max-width: 720px) {
+  .top { flex-wrap: nowrap; flex-direction: column; align-items: stretch; }
+  nav { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  nav a { flex: none; }
+  nav form { margin-left: 0; }
+  h1 { font-size: 24px; line-height: 32px; }
+}

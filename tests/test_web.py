@@ -414,7 +414,7 @@ def test_open_question_is_visible_even_without_a_recruiter(admin):
     page = admin.get("/questions").text
     assert "Где взять пропуск?" in page and "Иванов Пётр" in page and "GTP" in page
     assert "Здравствуйте!" in page and "рекрутер не назначен" in page
-    assert "Вопросы (1)" in page
+    assert 'Вопросы<span class="count">1</span>' in page
 
 
 def answer_form(admin, question_id):

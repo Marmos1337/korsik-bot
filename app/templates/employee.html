@@ -4,7 +4,7 @@
 <p><a href="/">Все новички</a></p>
 <h1>{{ employee.full_name }}</h1>
 
-<table>
+<div class="table"><table>
   <tr><th>Имя для обращения</th><td>{{ employee.first_name }}</td></tr>
   <tr><th>Место работы</th><td>{{ employee.workplace_name or "не указано" }}{% if schedule %}, рабочее время {{ schedule }}{% endif %}</td></tr>
   <tr><th>Выход</th><td>{{ employee.start_date }}</td></tr>
@@ -13,11 +13,11 @@
   <tr><th>Рекрутер</th><td>{{ employee.recruiter_name or "не назначен" }}</td></tr>
   <tr><th>Обращение</th><td>{% if employee.address == "ty" %}на ты{% elif employee.address == "vy" %}на вы{% else %}ещё не выбрано{% endif %}</td></tr>
   <tr><th>В боте</th><td>{% if employee.linked_at %}с {{ employee.linked_at|local }}{% else %}ссылка ещё не открыта{% endif %}</td></tr>
-</table>
+</table></div>
 {% if late %}<p class="muted">Новичок открыл ссылку поздно: пропущенные необязательные шаги он не получит, обязательные приходят коротко, не больше трёх в день в рабочее время.</p>{% endif %}
 {% if not schedule %}<p class="muted">Место работы не указано, поэтому ответы HR уходят новичку сразу, в любое время.</p>{% endif %}
 
-<form method="post" action="/employees/{{ employee.id }}/move">
+<form method="post" action="/employees/{{ employee.id }}/move" class="block row">
   <label class="inline">Место работы
     <select name="workplace_id">
       <option value="">не указано</option>
@@ -37,7 +37,7 @@
 {% if link %}
 <p><a href="{{ link }}">{{ link }}</a></p>
 {% if employee.max_user_id %}<p class="muted">Ссылка одноразовая и уже открыта, второй аккаунт по ней не войдёт.</p>{% endif %}
-<img src="/employees/{{ employee.id }}/qr.png" width="200" height="200" alt="QR-код личной ссылки">
+<img class="qr" src="/employees/{{ employee.id }}/qr.png" width="200" height="200" alt="QR-код личной ссылки">
 {% else %}
 <p>Имя бота ещё не получено от МАКС, ссылки пока нет. Обновите страницу через минуту.</p>
 {% endif %}
@@ -50,7 +50,7 @@
 
 <h2>Шаги</h2>
 {% if steps %}
-<table>
+<div class="table"><table>
   <tr><th>Шаг</th><th>Текст</th><th>Состояние</th><th>Отправлен</th><th>Ответ</th></tr>
   {% for s in steps %}
   <tr>
@@ -61,14 +61,14 @@
     <td>{{ s.answered_at|local }}</td>
   </tr>
   {% endfor %}
-</table>
+</table></div>
 {% else %}
 <p class="muted">Пока ничего не отправлено.</p>
 {% endif %}
 
 <h2>Ответы на опросы</h2>
 {% if answers %}
-<table>
+<div class="table"><table>
   <tr><th>Шаг</th><th>Вопрос</th><th>Ответ</th><th>Оценка</th><th>Когда</th></tr>
   {% for a in answers %}
   <tr>
@@ -79,32 +79,32 @@
     <td>{{ a.created_at|local }}</td>
   </tr>
   {% endfor %}
-</table>
+</table></div>
 {% else %}
 <p class="muted">Ответов пока нет.</p>
 {% endif %}
 
 <h2>Флаги</h2>
 {% if flags %}
-<table>
+<div class="table"><table>
   <tr><th>Когда</th><th>Риск</th><th>Тема</th><th>Причина</th><th>Сообщение</th></tr>
   {% for f in flags %}
   <tr>
     <td>{{ f.created_at|local }}</td>
-    <td>{% if f.risk == 2 %}красный флаг{% else %}есть трудность{% endif %}</td>
+    <td>{% if f.risk == 2 %}<span class="chip bad">красный флаг</span>{% else %}<span class="chip warn">есть трудность</span>{% endif %}</td>
     <td>{{ f.topic }}</td>
     <td>{{ f.reason }}</td>
     <td class="text">{{ f.text }}</td>
   </tr>
   {% endfor %}
-</table>
+</table></div>
 {% else %}
 <p class="muted">Флагов нет.</p>
 {% endif %}
 
 <h2>Переписка</h2>
 {% if messages %}
-<table>
+<div class="table"><table>
   <tr><th>Когда</th><th>Кто</th><th>Текст</th></tr>
   {% for m in messages %}
   <tr>
@@ -113,7 +113,7 @@
     <td class="text">{{ m.text }}</td>
   </tr>
   {% endfor %}
-</table>
+</table></div>
 {% else %}
 <p class="muted">Переписки нет.</p>
 {% endif %}

@@ -1,10 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Вход{% endblock %}
 {% block content %}
-<h1>Корсик, кабинет HR</h1>
-{% if error %}<p class="flash bad">{{ error }}</p>{% endif %}
-<form method="post" action="/login">
-  <label>Пароль <input type="password" name="password" autofocus></label>
-  <button>Войти</button>
-</form>
+<div class="login">
+  <div class="hero">
+    <img src="/static/avatar.png" alt="" width="64" height="64">
+    <div><h1>Кабинет HR</h1><p>Корсик, помощник новичков</p></div>
+  </div>
+  {% if error %}<p class="flash bad">{{ error }}</p>{% endif %}
+  <form method="post" action="/login" class="block">
+    <label>Пароль <input type="password" name="password" autofocus required></label>
+    <button>Войти</button>
+  </form>
+</div>
 {% endblock %}

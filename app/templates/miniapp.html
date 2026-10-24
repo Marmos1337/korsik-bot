@@ -4,22 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Корсик</title>
-<style>
-body { font-family: sans-serif; margin: 1rem; }
-table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
-th, td { border: 1px solid #bbb; padding: .3rem .5rem; text-align: left; vertical-align: top; }
-th { background: #eee; }
-form { margin-bottom: 1.5rem; }
-textarea { width: 100%; box-sizing: border-box; }
-.flash { padding: .5rem; background: #e6f3e6; }
-.flash.bad { background: #fde8e8; }
-.text { white-space: pre-wrap; }
-.muted { color: #666; }
-</style>
+<link rel="stylesheet" href="{{ css }}">
 <script src="https://st.max.ru/js/max-web-app.js"></script>
 </head>
 <body>
+<div class="app">
+<div class="head"><img src="/static/avatar.png" alt="" width="48" height="48"><div><b>Корсик</b><span class="muted caption">помощник новичка</span></div></div>
 <main id="main"><p class="muted">Загружаю...</p></main>
+</div>
 <script>
 const initData = window.WebApp ? window.WebApp.initData : "";
 const main = document.getElementById("main");

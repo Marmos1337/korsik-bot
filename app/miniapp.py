@@ -47,6 +47,10 @@ def local_time(stamp: str | None, tz: str | None = None) -> str:
 
 
 templates.filters["local"] = local_time
+# the file's hash in the address: browsers keep static files for a day, a new version must not wait for that
+CSS_URL = "/static/korsik.css?v=" + hashlib.sha256(
+    (Path(__file__).parent / "static" / "korsik.css").read_bytes()).hexdigest()[:10]
+templates.globals["css"] = CSS_URL
 
 # The page itself has no data, so it is rendered once. Its policy lets in MAX's bridge and this one inline
 # script by its hash: nothing else can run on the page, even if some text slipped past the escaping.
@@ -54,7 +58,7 @@ PAGE = templates.get_template("miniapp.html").render()
 SCRIPT_HASH = base64.b64encode(
     hashlib.sha256(PAGE.split("<script>")[1].split("</script>")[0].encode()).digest()).decode()
 POLICY = (f"default-src 'none'; script-src https://st.max.ru 'sha256-{SCRIPT_HASH}'; connect-src 'self'; "
-          "img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; "
+          "img-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; form-action 'self'; base-uri 'none'; "
           "frame-ancestors https://max.ru https://*.max.ru")
 
 
@@ -234,7 +238,12 @@ def newcomer_part(employee) -> dict:
                               (employee["id"],))["n"]
     questions = db.query("SELECT * FROM escalations WHERE employee_id = ? ORDER BY id DESC LIMIT 20",
                          (employee["id"],))
+    # the bar is the share of the planned steps whose moment has passed; branches after buttons do not count
+    planned = engine._timed_steps(employee)
+    passed = {r["step_id"] for r in db.query("SELECT step_id FROM sent_steps WHERE employee_id = ?", (employee["id"],))}
+    progress = round(100 * sum(1 for s in planned if s.id in passed) / len(planned)) if planned else 0
     return {"ty": employee["address"] == "ty", "stage": hr._stage(employee), "steps_done": steps_done,
+            "progress": progress,
             "next_step": next_step(employee), "my_questions": questions}
 
 

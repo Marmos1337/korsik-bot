@@ -12,3 +12,4 @@ data/*
 .autopilot/
 AGENTS.md
 CLAUDE.md
+.claude/

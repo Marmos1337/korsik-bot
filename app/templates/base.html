@@ -4,49 +4,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Кабинет HR{% endblock %} | Корсик</title>
-<style>
-body { font-family: sans-serif; max-width: 70rem; margin: 1rem auto; padding: 0 1rem; }
-table { border-collapse: collapse; width: 100%; margin: .5rem 0 1.5rem; }
-th, td { border: 1px solid #bbb; padding: .3rem .5rem; text-align: left; vertical-align: top; }
-th { background: #eee; }
-nav { margin-bottom: 1rem; }
-nav a, nav form { margin-right: 1rem; display: inline; }
-.flash { padding: .5rem; background: #e6f3e6; }
-.flash.bad { background: #fde8e8; }
-.text { white-space: pre-wrap; }
-.muted { color: #666; }
-label { display: block; margin: .4rem 0; }
-label.inline { display: inline; margin-right: .6rem; }
-.alert { padding: .6rem; background: #c62828; color: #fff; margin-bottom: 1rem; }
-.alert a { color: #fff; }
-.overdue { border-left: 6px solid #c62828; padding-left: .6rem; background: #fdecea; }
-.red { color: #c62828; font-weight: bold; }
-.ok { color: #2e7d32; }
-.cards { display: flex; flex-wrap: wrap; gap: .6rem; margin: .5rem 0 1.5rem; }
-.card { border: 1px solid #bbb; padding: .5rem .8rem; min-width: 9rem; }
-.card b { display: block; font-size: 1.6rem; }
-</style>
+<link rel="stylesheet" href="{{ css }}">
+<link rel="icon" href="/static/favicon.png">
 </head>
 <body>
+<div class="page">
 {% if request.session.get("admin") %}
-<nav>
-  <a href="/dashboard">Дашборд</a>
-  <a href="/">Новички</a>
-  <a href="/recruiters">Рекрутеры</a>
-  <a href="/workplaces">Места работы</a>
-  <a href="/knowledge">Документы</a>
-  <a href="/questions">Вопросы{% if open_questions() %} ({{ open_questions() }}){% endif %}</a>
-  <a href="/scenario">Сценарий</a>
-  <a href="/export.xlsx">Excel</a>
-  <form method="post" action="/logout"><button>Выйти</button></form>
-</nav>
+{% set here = request.url.path %}
+<header class="top">
+  <a class="logo" href="/dashboard"><img src="/static/logo_gradient.svg" alt="Корсик" width="90" height="28"></a>
+  <nav>
+    {% for url, name in [("/dashboard", "Дашборд"), ("/", "Новички"), ("/recruiters", "Рекрутеры"), ("/workplaces", "Места работы"), ("/questions", "Вопросы"), ("/knowledge", "Документы"), ("/scenario", "Сценарий")] %}
+    <a href="{{ url }}"{% if here == url or (url != "/" and here.startswith(url)) or (url == "/" and here.startswith("/employees")) %} aria-current="page"{% endif %}>{{ name }}{% if url == "/questions" and open_questions() %}<span class="count">{{ open_questions() }}</span>{% endif %}</a>
+    {% endfor %}
+    <a href="/export.xlsx">Excel</a>
+    <form method="post" action="/logout"><button class="secondary compact">Выйти</button></form>
+  </nav>
+</header>
 {% set late_questions = overdue_questions() %}
 {% if late_questions %}
-<p class="alert">Вопросов ждут ответа слишком долго: {{ late_questions }}. Рекрутер не отвечает или сейчас не работает. <a href="/questions">Открыть вопросы</a></p>
+<p class="alert"><span>Вопросов ждут ответа слишком долго: {{ late_questions }}. Рекрутер не отвечает или сейчас не работает.</span> <a href="/questions">Открыть вопросы</a></p>
 {% endif %}
 {% endif %}
 {% if flash %}<p class="flash{% if flash.bad %} bad{% endif %}">{{ flash.text }}</p>{% endif %}
 {% block content %}{% endblock %}
-{% if request.session.get("admin") %}<p class="muted">Время на страницах: {{ tz_name }}</p>{% endif %}
+{% if request.session.get("admin") %}<p class="muted caption footer">Время на страницах: {{ tz_name }}</p>{% endif %}
+</div>
 </body>
 </html>

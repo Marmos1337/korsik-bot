@@ -5,8 +5,9 @@
 {% for place, items in blocks.items() %}
 <h3>{{ place }}</h3>
 {% for q, state in items %}
-<form method="post" action="/app/answer/{{ q.id }}"{% if state.overdue %} class="flash bad"{% endif %}>
-  <p><b>{{ q.full_name }}</b>, {{ q.created_at|local }}, ждёт {{ state.waited }}</p>
+<form method="post" action="/app/answer/{{ q.id }}" class="block{% if state.overdue %} overdue{% endif %}">
+  <p><b>{{ q.full_name }}</b>, {{ q.created_at|local }}</p>
+  <p>{% if state.overdue %}<span class="chip bad">просрочен</span>{% else %}<span class="chip warn">ждёт ответа</span>{% endif %} {{ state.waited }}</p>
   <p class="text">{{ q.question }}</p>
   <input type="hidden" name="employee_id" value="{{ q.employee_id }}">
   <input type="hidden" name="asked_at" value="{{ q.created_at }}">
@@ -32,13 +33,13 @@
     <button>Сменить место работы</button>
   </form>
   {% endif %}
-  <table>
+  <div class="table"><table>
     <tr><th>Выход</th><td>{{ e.start_date }}</td></tr>
     <tr><th>Часовой пояс</th><td>{{ e.timezone }}</td></tr>
     <tr><th>Теги</th><td>{{ e.tags or "нет" }}</td></tr>
     <tr><th>Обращение</th><td>{% if e.address == "ty" %}на ты{% elif e.address == "vy" %}на вы{% else %}ещё не выбрано{% endif %}</td></tr>
     <tr><th>Шагов отправлено</th><td>{{ e.steps_sent }}</td></tr>
-  </table>
+  </table></div>
   {% if n.flags %}
   <p>Последние флаги:</p>
   <ul>
@@ -65,11 +66,11 @@
 
 <h2>Мой график</h2>
 <p>Сейчас: {{ my_schedule }}. Напоминания о вопросах без ответа приходят только в это время.</p>
-<form method="post" action="/app/profile">
+<form method="post" action="/app/profile" class="block">
   <select name="timezone">
     {% for name, label in zones.items() %}<option value="{{ name }}"{% if name == recruiter.timezone %} selected{% endif %}>{{ label }}</option>{% endfor %}
   </select>
-  <p>{% for name in day_names %}<label><input type="checkbox" name="days" value="{{ loop.index }}"{% if loop.index in my_days %} checked{% endif %}> {{ name }}</label> {% endfor %}</p>
+  <p class="days">{% for name in day_names %}<label class="inline"><input type="checkbox" name="days" value="{{ loop.index }}"{% if loop.index in my_days %} checked{% endif %}> {{ name }}</label> {% endfor %}</p>
   <p>С <input name="work_start" value="{{ recruiter.work_start }}" size="5"> до <input name="work_end" value="{{ recruiter.work_end }}" size="5"></p>
   <button>Сохранить график</button>
 </form>
@@ -77,7 +78,9 @@
 
 {% if employee %}
 <h2>{% if ty %}Твой{% else %}Ваш{% endif %} прогресс</h2>
-<p>{{ stage|capitalize }}<br>Пройдено шагов: {{ steps_done }}</p>
+<div class="card"><p><b>{{ stage|capitalize }}</b></p>
+<div class="progress" role="progressbar" aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100"><span style="width: {{ progress }}%"></span></div>
+<p class="muted">Пройдено шагов: {{ steps_done }}</p></div>
 {% if employee.waiting %}
 <p>Бот ждёт {% if ty %}твоего{% else %}вашего{% endif %} ответа в чате.</p>
 {% elif next_step %}

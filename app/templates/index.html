@@ -3,12 +3,12 @@
 {% block content %}
 <h1>Новички</h1>
 <p>
-  {% if model_up %}Модель работает: бот отвечает на вопросы по документам.
-  {% else %}Сейчас упрощённый режим: модель недоступна, бот отвечает цитатами из документов или передаёт вопрос рекрутеру. Сценарий и опросы работают как обычно.{% endif %}
+  {% if model_up %}<span class="chip ok">Модель работает</span> Бот отвечает на вопросы по документам.
+  {% else %}<span class="chip warn">Модель недоступна</span> Сейчас упрощённый режим: бот отвечает цитатами из документов или передаёт вопрос рекрутеру. Сценарий и опросы работают как обычно.{% endif %}
 </p>
 
 {% if employees %}
-<table>
+<div class="table"><table>
   <tr><th>ФИО</th><th>Место работы</th><th>Выход</th><th>Часовой пояс</th><th>Теги</th><th>Рекрутер</th><th>В боте</th><th>Шагов</th><th>Вопросов</th><th>Красных флагов</th></tr>
   {% for e in employees %}
   <tr>
@@ -18,19 +18,19 @@
     <td>{{ e.timezone|zone }}</td>
     <td>{{ e.tags }}</td>
     <td>{{ e.recruiter_name or "не назначен" }}</td>
-    <td>{% if e.max_user_id %}да{% else %}ссылка не открыта{% endif %}</td>
+    <td>{% if e.max_user_id %}<span class="chip ok">в боте</span>{% else %}<span class="chip warn">ссылка не открыта</span>{% endif %}</td>
     <td>{{ e.steps_sent }}</td>
     <td>{{ e.open_questions }}</td>
-    <td>{{ e.red_flags }}</td>
+    <td>{% if e.red_flags %}<span class="chip bad">{{ e.red_flags }}</span>{% else %}0{% endif %}</td>
   </tr>
   {% endfor %}
-</table>
+</table></div>
 {% else %}
 <p class="muted">Новичков пока нет.</p>
 {% endif %}
 
 <h2>Добавить новичка</h2>
-<form method="post" action="/employees">
+<form method="post" action="/employees" class="block">
   <label>ФИО <input name="full_name" required maxlength="200" size="40"></label>
   <label>Имя для обращения <input name="first_name" maxlength="200"> <span class="muted">если пусто, берём второе слово ФИО</span></label>
   <label>Дата выхода <input type="date" name="start_date" required></label>

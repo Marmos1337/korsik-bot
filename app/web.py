@@ -17,6 +17,7 @@ import qrcode
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
@@ -37,12 +38,13 @@ UPLOAD_TYPES = (".pdf", ".docx", ".pptx", ".txt", ".md")
 RISK_NAMES = {1: "есть трудность", 2: "красный флаг"}
 XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PUBLIC_PATHS = ("/login", "/health")
+STATIC = Path(__file__).parent / "static"
 # pages have no scripts and load nothing from other hosts, so the policy can be strict
 SECURITY_HEADERS = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
-    "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; "
-                               "form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; "
+                               "font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 }
 # the MAX mini app runs MAX's bridge script and its own one, and lives inside a MAX frame
 MINIAPP_HEADERS = SECURITY_HEADERS | {"Content-Security-Policy": miniapp.POLICY}
@@ -51,6 +53,8 @@ TIMEZONES = hours.TIMEZONES
 # the admin is plain HTML pages, an auto-generated API page would only show the routes to strangers
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(miniapp.router)
+# fonts, styles, logo and avatar of the design system; the login page and the mini app need them without a session
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 templates = Jinja2Templates(env=jinja2.Environment(
     loader=jinja2.FileSystemLoader(Path(__file__).parent / "templates"),
@@ -74,6 +78,7 @@ templates.env.globals["tz_name"] = cfg.DEFAULT_TZ
 templates.env.globals["open_questions"] = lambda: db.query_one(
     "SELECT COUNT(*) AS n FROM escalations WHERE status = 'open'")["n"]
 templates.env.globals["overdue_questions"] = hr.overdue_count
+templates.env.globals["css"] = miniapp.CSS_URL
 templates.env.globals["day_names"] = hours.DAY_NAMES
 templates.env.filters["schedule"] = lambda row: hours.from_row(row).describe()
 
@@ -83,6 +88,10 @@ async def guard(request: Request, call_next):
     size = request.headers.get("content-length", "")
     # the mini app has no cabinet session: each of its requests carries MAX's signed initData instead
     in_miniapp = request.url.path == "/app" or request.url.path.startswith("/app/")
+    if request.url.path.startswith("/static/"):
+        response = await call_next(request)
+        response.headers.update({"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"})
+        return response
     if size.isdigit() and int(size) > MAX_UPLOAD + FORM_OVERHEAD:
         # answered before the body is read, so a huge upload never lands on disk
         response = page(request, "message.html", 413, text="Файл больше 20 МБ.")

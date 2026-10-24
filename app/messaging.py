@@ -51,21 +51,30 @@ def image_key(name: str) -> str:
     return "img:" + Path(name).name
 
 
+def image_source(name: str) -> tuple[Path, str]:
+    """The picture file and its cache key. HR's own pictures in data/images win over Korsik's bundled poses."""
+    name = Path(name).name
+    own = Path(cfg.DATA_DIR) / "images" / name
+    pose = Path(cfg.SCENARIO_PATH).parent / "images" / name
+    if not own.is_file() and pose.is_file():
+        return pose, image_key(name) + ":pose"  # its own cache entry, so a real picture added later replaces it
+    return own, image_key(name)
+
+
 async def image_token(name: str) -> str | None:
-    token = db.kv_get(image_key(name))
+    path, key = image_source(name)
+    token = db.kv_get(key)
     if token:
         return token
-    name = Path(name).name
-    path = Path(cfg.DATA_DIR) / "images" / name
     if not path.is_file():
-        log.warning("image %s not found, sending text only", name)
+        log.warning("image %s not found, sending text only", path.name)
         return None
     try:
         token = await max_api.upload_image(str(path))
     except Exception as e:  # a picture is optional, whatever breaks here the step text still goes out
         log.warning("image %s upload failed: %s", name, e)
         return None
-    db.kv_set(image_key(name), token)
+    db.kv_set(key, token)
     return token
 
 
@@ -84,7 +93,7 @@ async def send_to_employee(employee, text: str, buttons=None, image: str | None 
             except max_api.MaxError as e:
                 # a cached token can go stale on the MAX side: forget it and send the text alone
                 log.warning("image %s rejected (%s), sending text only", image, e)
-                db.kv_set(image_key(image), "")
+                db.kv_set(image_source(image)[1], "")
                 await max_api.send_message(part, user_id=user_id, buttons=keyboard)
         else:
             await max_api.send_message(part, user_id=user_id, buttons=keyboard)

@@ -4,7 +4,7 @@
 {% block content %}
 <h1>Рекрутеры</h1>
 {% if recruiters %}
-<table>
+<div class="table"><table>
   <tr><th>Имя</th><th>Места работы</th><th>График</th><th>Сейчас</th><th>МАКС</th><th>Новичков</th><th>Открытых вопросов</th><th>Ответ обычно за</th><th>Ссылка для привязки</th></tr>
   {% for r in recruiters %}
   {% set st = stats[r.id] %}
@@ -12,26 +12,26 @@
     <td><a href="/recruiters/{{ r.id }}">{{ r.name }}</a></td>
     <td>{{ r.workplace_names or "не выбраны" }}</td>
     <td>{{ r|schedule }}, {{ r.timezone|zone }}</td>
-    <td>{% if working[r.id] %}<span class="ok">работает</span>{% else %}не работает{% endif %}</td>
-    <td>{% if r.max_user_id %}привязан{% else %}<span class="red">не привязан</span>{% endif %}</td>
+    <td>{% if working[r.id] %}<span class="chip ok">работает</span>{% else %}<span class="chip">не работает</span>{% endif %}</td>
+    <td>{% if r.max_user_id %}<span class="chip ok">привязан</span>{% else %}<span class="chip bad">не привязан</span>{% endif %}</td>
     <td>{{ r.employees }}</td>
     <td>{{ st.open }}{% if st.overdue %} <span class="red">(просрочено {{ st.overdue }})</span>{% endif %}</td>
     <td>{{ st.median or "ответов ещё не было" }}</td>
     <td>
       {% if links[r.id] %}
       <a href="{{ links[r.id] }}">{{ links[r.id] }}</a><br>
-      <img src="/recruiters/{{ r.id }}/qr.png" width="120" height="120" alt="QR-код ссылки для {{ r.name }}">
+      <img class="qr" src="/recruiters/{{ r.id }}/qr.png" width="120" height="120" alt="QR-код ссылки для {{ r.name }}">
       {% else %}имя бота ещё не получено от МАКС{% endif %}
     </td>
   </tr>
   {% endfor %}
-</table>
+</table></div>
 {% else %}
 <p class="muted">Рекрутеров пока нет.</p>
 {% endif %}
 
 <h2>Добавить рекрутера</h2>
-<form method="post" action="/recruiters">
+<form method="post" action="/recruiters" class="block">
   <label>Имя <input name="name" required maxlength="200"></label>
   {{ schedule_fields(zones, default_zone, [1, 2, 3, 4, 5], "09:00", "18:00") }}
   {% if workplaces %}
