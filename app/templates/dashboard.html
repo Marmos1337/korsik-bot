@@ -40,7 +40,7 @@
     <div class="card">
       <div class="row between"><b>{{ p.workplace.name if p.workplace else "Место не указано" }}</b>{% if p.overdue %}<span class="chip bad">просрочено {{ p.overdue }}</span>{% elif p.open %}<span class="chip warn">вопросов {{ p.open }}</span>{% else %}<span class="chip ok">всё в порядке</span>{% endif %}</div>
       {% if p.workplace %}<p class="small muted">{{ p.workplace|schedule }} · {{ p.workplace.recruiter_names or "рекрутер не назначен" }}</p>{% endif %}
-      <div class="row small"><span>Новичков: <b>{{ p.employees }}</b></span><span>Открытых вопросов: <b>{{ p.open }}</b></span><span>Флагов за неделю: <b{% if p.flags %} class="err"{% endif %}>{{ p.flags }}</b></span></div>
+      <div class="chips"><span class="chip plain">новичков: {{ p.employees }}</span><span class="chip {% if p.open %}warn{% else %}plain{% endif %}">вопросов: {{ p.open }}</span><span class="chip {% if p.flags %}bad{% else %}plain{% endif %}">флагов за неделю: {{ p.flags }}</span></div>
     </div>
     {% endfor %}
   </div>
@@ -79,7 +79,8 @@
     <section class="section">
       <div class="section-head"><h2 class="section-title">О чём трудности</h2></div>
       <div class="card">
-        {% if topics %}{% for t in topics %}<div class="row between"><span>{{ t.topic }}</span><span class="badge">{{ t.n }}</span></div>{% endfor %}
+        {% if topics %}{% set most = topics|map(attribute="n")|max %}
+        {% for t in topics %}<div class="tight"><div class="row between"><span>{{ t.topic }}</span><span class="badge">{{ t.n }}</span></div><div class="progress thin"><span style="width: {{ (t.n * 100 / most)|round|int }}%"></span></div></div>{% endfor %}
         {% else %}<p class="muted">Жалоб и трудностей пока не было.</p>{% endif %}
         {% if waiting %}<p class="small muted">Ответов ждут рабочего времени новичка: {{ waiting }}</p>{% endif %}
       </div>
