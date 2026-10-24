@@ -13,12 +13,12 @@
 {% endif %}
 
 <section class="section">
+  <div class="section-head"><h2 class="section-title">Загрузить новый сценарий</h2></div>
   {% if upload_problems %}
-  <div class="notice bad flash"><b>Файл не принят, рабочий сценарий остался прежним</b><ul>{% for problem in upload_problems %}<li>{{ problem }}</li>{% endfor %}</ul></div>
+  <div class="notice bad"><b>Файл не принят, рабочий сценарий остался прежним</b><ul>{% for problem in upload_problems %}<li>{{ problem }}</li>{% endfor %}</ul></div>
   {% endif %}
-  <form method="post" action="/scenario/upload" enctype="multipart/form-data" class="card form" style="grid-template-columns:1fr; max-width:640px">
-    <h2 class="section-title">Загрузить новый сценарий</h2>
-    <label class="field"><span>Файл .xlsx с листом «Сценарий»</span><input type="file" name="file" required accept=".xlsx" style="padding-top:14px"></label>
+  <form method="post" action="/scenario/upload" enctype="multipart/form-data" class="card form one narrow">
+    <label class="field"><span>Файл .xlsx с листом «Сценарий»</span><input type="file" name="file" required accept=".xlsx"></label>
     <button class="btn">Проверить и заменить</button>
     <p class="caption">Сначала файл проверяется. Без ошибок он заменяет рабочий, прошлая версия остаётся в data/scenario-previous.xlsx. Шаги, которые новичок уже получил, повторно не уходят: учёт идёт по номеру шага.</p>
   </form>

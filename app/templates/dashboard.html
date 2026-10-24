@@ -19,12 +19,12 @@
 
 {% if late %}
 <section class="section">
-  <div class="card-head"><h2 class="section-title">Просроченные вопросы</h2><a href="/questions">Ответить</a></div>
+  <div class="section-head"><h2 class="section-title">Просроченные вопросы</h2><a href="/questions">Ответить</a></div>
   <div class="card flat"><div class="list">
     {% for q in late %}
     <div class="row between">
-      <div class="grow"><a href="/employees/{{ q.employee_id }}"><b>{{ q.full_name }}</b></a><p class="text" style="margin-top:2px">{{ q.question }}</p>
-        <p class="caption" style="margin-top:4px">{{ states[q.id].notes|join("; ") or "ждёт дольше двух часов" }}</p></div>
+      <div class="tight grow"><a href="/employees/{{ q.employee_id }}"><b>{{ q.full_name }}</b></a><p class="text">{{ q.question }}</p>
+        <p class="caption">{{ states[q.id].notes|join("; ") or "ждёт дольше двух часов" }}</p></div>
       <span class="chip bad">{{ icon("clock", "sm") }}{{ states[q.id].waited }}</span>
     </div>
     {% endfor %}
@@ -33,14 +33,14 @@
 {% endif %}
 
 <section class="section">
-  <div class="card-head"><h2 class="section-title">Места работы</h2><a href="/workplaces">Все места</a></div>
+  <div class="section-head"><h2 class="section-title">Места работы</h2><a href="/workplaces">Все места</a></div>
   {% if places %}
   <div class="grid">
     {% for p in places %}
-    <div class="card stack">
+    <div class="card">
       <div class="row between"><b>{{ p.workplace.name if p.workplace else "Место не указано" }}</b>{% if p.overdue %}<span class="chip bad">просрочено {{ p.overdue }}</span>{% elif p.open %}<span class="chip warn">вопросов {{ p.open }}</span>{% else %}<span class="chip ok">всё в порядке</span>{% endif %}</div>
       {% if p.workplace %}<p class="small muted">{{ p.workplace|schedule }} · {{ p.workplace.recruiter_names or "рекрутер не назначен" }}</p>{% endif %}
-      <div class="row small"><span>Новичков: <b>{{ p.employees }}</b></span><span>Открытых вопросов: <b>{{ p.open }}</b></span><span>Флагов за неделю: <b{% if p.flags %} style="color:var(--error)"{% endif %}>{{ p.flags }}</b></span></div>
+      <div class="row small"><span>Новичков: <b>{{ p.employees }}</b></span><span>Открытых вопросов: <b>{{ p.open }}</b></span><span>Флагов за неделю: <b{% if p.flags %} class="err"{% endif %}>{{ p.flags }}</b></span></div>
     </div>
     {% endfor %}
   </div>
@@ -48,13 +48,13 @@
 </section>
 
 <section class="section">
-  <div class="card-head"><h2 class="section-title">Рекрутеры</h2><a href="/recruiters">Все рекрутеры</a></div>
+  <div class="section-head"><h2 class="section-title">Рекрутеры</h2><a href="/recruiters">Все рекрутеры</a></div>
   {% if recruiters %}
   <div class="card flat table-wrap"><table>
     <tr><th>Рекрутер</th><th>Сейчас</th><th>Новичков</th><th>Ждут ответа</th><th>Отвечено</th><th>Обычно отвечает за</th><th>За час</th></tr>
     {% for item in recruiters %}{% set r = item.recruiter %}{% set st = item.stats %}
     <tr>
-      <td><a class="person" href="/recruiters/{{ r.id }}"><span class="avatar sm">{{ r.name|initials }}</span><span><span class="name">{{ r.name }}</span>{% if not r.max_user_id %}<br><span class="caption" style="color:var(--error)">МАКС не привязан</span>{% endif %}</span></a></td>
+      <td><a class="person" href="/recruiters/{{ r.id }}"><span class="avatar sm">{{ r.name|initials }}</span><span class="tight"><span class="name">{{ r.name }}</span>{% if not r.max_user_id %}<span class="caption err">МАКС не привязан</span>{% endif %}</span></a></td>
       <td>{% if item.working %}<span class="chip ok">работает</span>{% else %}<span class="chip plain">не работает</span>{% endif %}</td>
       <td class="num">{{ item.employees }}</td>
       <td class="num">{{ st.open }}{% if st.overdue %} <span class="chip bad">просрочено {{ st.overdue }}</span>{% endif %}</td>
@@ -64,20 +64,26 @@
     </tr>
     {% endfor %}
   </table></div>
-  {% else %}<div class="card empty">Рекрутеров пока нет. <a href="/recruiters">Добавить</a></div>{% endif %}
+  {% else %}<div class="card empty"><p>Рекрутеров пока нет.</p><a class="btn secondary compact" href="/recruiters">Добавить</a></div>{% endif %}
 </section>
 
-<div class="grid-2 section">
-  <div class="card">
-    <h2 class="section-title" style="margin-bottom:16px">Красные флаги за неделю</h2>
-    {% if red %}<div class="stack">{% for f in red %}<div class="notice bad"><b><a href="/employees/{{ f.employee_id }}">{{ f.full_name }}</a>: {{ f.topic }}</b><span class="caption">{{ f.created_at|local }}</span><p class="quote text">«{{ f.text }}»</p></div>{% endfor %}</div>
-    {% else %}<p class="muted">Красных флагов нет.</p>{% endif %}
+<div class="cols">
+  <div>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Красные флаги за неделю</h2></div>
+      {% if red %}{% for f in red %}<div class="notice bad"><b><a href="/employees/{{ f.employee_id }}">{{ f.full_name }}</a>: {{ f.topic }}</b><span class="caption">{{ f.created_at|local }}</span><p class="quote text">«{{ f.text }}»</p></div>{% endfor %}
+      {% else %}<div class="card"><p class="muted">Красных флагов нет.</p></div>{% endif %}
+    </section>
   </div>
-  <div class="card">
-    <h2 class="section-title" style="margin-bottom:16px">О чём трудности</h2>
-    {% if topics %}<div class="stack">{% for t in topics %}<div class="row between"><span>{{ t.topic }}</span><span class="badge">{{ t.n }}</span></div>{% endfor %}</div>
-    {% else %}<p class="muted">Жалоб и трудностей пока не было.</p>{% endif %}
-    {% if waiting %}<p class="small muted" style="margin-top:16px">Ответов ждут рабочего времени новичка: {{ waiting }}</p>{% endif %}
+  <div>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">О чём трудности</h2></div>
+      <div class="card">
+        {% if topics %}{% for t in topics %}<div class="row between"><span>{{ t.topic }}</span><span class="badge">{{ t.n }}</span></div>{% endfor %}
+        {% else %}<p class="muted">Жалоб и трудностей пока не было.</p>{% endif %}
+        {% if waiting %}<p class="small muted">Ответов ждут рабочего времени новичка: {{ waiting }}</p>{% endif %}
+      </div>
+    </section>
   </div>
 </div>
 {% endblock %}

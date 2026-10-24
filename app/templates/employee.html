@@ -2,13 +2,15 @@
 {% from "_ui.html" import icon, status_chip %}
 {% block title %}{{ employee.full_name }}{% endblock %}
 {% block content %}
-<a class="back" href="/">{{ icon("back", "sm") }}Новички</a>
 <div class="page-head">
-  <div class="person">
-    <span class="avatar lg">{{ employee.full_name|initials }}</span>
-    <div><h1 class="title">{{ employee.full_name }}</h1>
-      <p class="lead">{{ employee.workplace_name or "Место работы не указано" }} · {{ card.when }}</p>
-      <div class="chips" style="margin-top:8px">{{ status_chip(card.status) }}{% if employee.address %}<span class="chip plain">на «{{ "ты" if employee.address == "ty" else "вы" }}»</span>{% endif %}</div>
+  <div class="tight">
+    <a class="back" href="/">{{ icon("back", "sm") }}Новички</a>
+    <div class="person top-align">
+      <span class="avatar lg">{{ employee.full_name|initials }}</span>
+      <div class="tight"><h1 class="title">{{ employee.full_name }}</h1>
+        <p class="muted">{{ employee.workplace_name or "Место работы не указано" }} · {{ card.when }}</p>
+        <div class="chips">{{ status_chip(card.status) }}{% if employee.address %}<span class="chip plain">на «{{ "ты" if employee.address == "ty" else "вы" }}»</span>{% endif %}</div>
+      </div>
     </div>
   </div>
   {% if demo and employee.linked_at %}
@@ -16,107 +18,119 @@
   {% endif %}
 </div>
 
-<div class="grid-2">
-  <div class="stack-24">
+<div class="cols">
+  <div>
     {% if new and link %}
-    <div class="card">
-      <div class="card-head"><h2 class="section-title">Ссылка готова</h2><span class="chip ok">{{ icon("check", "sm") }}Сохранено</span></div>
-      <p class="muted">Отправь ссылку новичку или распечатай QR в оффер. По ссылке войдёт только один аккаунт МАКС.</p>
-      <div class="row" style="margin-top:16px; align-items:flex-start"><img class="qr" src="/employees/{{ employee.id }}/qr.png" alt="QR-код личной ссылки" width="200" height="200"><div class="grow linkbox">{{ link }}</div></div>
-    </div>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Ссылка готова</h2><span class="chip ok">{{ icon("check", "sm") }}Сохранено</span></div>
+      <div class="card">
+        <p class="muted">Отправь ссылку новичку или распечатай QR в оффер. По ссылке войдёт только один аккаунт МАКС.</p>
+        <div class="row top-align"><img class="qr" src="/employees/{{ employee.id }}/qr.png" alt="QR-код личной ссылки" width="200" height="200"><div class="grow linkbox">{{ link }}</div></div>
+      </div>
+    </section>
     {% endif %}
 
-    {% for f in flags|reverse %}
-    <div class="notice {% if f.risk == 2 %}bad{% else %}warn{% endif %}">
-      <b>{% if f.risk == 2 %}Красный флаг{% else %}Нужно внимание{% endif %}: {{ f.topic }}</b>
-      {{ f.reason or "причина не указана" }} · {{ f.created_at|local }}
-      <p class="quote text">«{{ f.text }}»</p>
-    </div>
-    {% endfor %}
-    {% if late %}<div class="notice">Открыл ссылку поздно: пропущенные необязательные шаги не пришли, обязательные приходят коротко, до трёх в день в рабочее время.</div>{% endif %}
+    {% if flags or late %}
+    <section class="section">
+      {% for f in flags|reverse %}
+      <div class="notice {% if f.risk == 2 %}bad{% else %}warn{% endif %}">
+        <b>{% if f.risk == 2 %}Красный флаг{% else %}Нужно внимание{% endif %}: {{ f.topic }}</b>
+        <span>{{ f.reason or "причина не указана" }} · {{ f.created_at|local }}</span>
+        <p class="quote text">«{{ f.text }}»</p>
+      </div>
+      {% endfor %}
+      {% if late %}<div class="notice">Открыл ссылку поздно: пропущенные необязательные шаги не пришли, обязательные приходят коротко, до трёх в день в рабочее время.</div>{% endif %}
+    </section>
+    {% endif %}
 
-    <div class="card flat">
-      <div class="card-head" style="padding:20px 20px 0"><h2 class="section-title">Шаги</h2><span class="muted small">{{ steps|length }}</span></div>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Шаги</h2><span class="muted small">{{ steps|length }}</span></div>
+      <div class="card flat">
       {% if steps %}
-      {% set hidden = steps|length - 8 %}
-      {% if hidden > 0 %}<details class="more"><summary class="disclose" style="padding:12px 20px">Ранние шаги: {{ hidden }}</summary>{% endif %}
-      <ol class="steps">
-        {% for s in steps %}
-        {% if hidden > 0 and loop.index == hidden + 1 %}</ol></details><ol class="steps">{% endif %}
-        <li class="{% if s.status in ('sent', 'answered') %}done{% elif s.status == 'skipped' %}skipped{% endif %}">
-          <span class="mark">{% if s.status == 'skipped' %}{{ icon("minus", "sm") }}{% elif s.status == 'reminded' %}{{ icon("clock", "sm") }}{% else %}{{ icon("check", "sm") }}{% endif %}</span>
-          <div class="small">{{ titles.get(s.step_id, "")|replace("{имя}", employee.first_name)|truncate(110) }}
-            <div class="caption">{{ {"sent": "отправлен", "answered": "есть ответ", "skipped": "пропущен", "reminded": "напомнили"}.get(s.status, s.status) }}</div></div>
-          <span class="when">{{ s.sent_at|local }}</span>
-        </li>
-        {% endfor %}
-      </ol>
+        {% set hidden = steps|length - 8 %}
+        {% if hidden > 0 %}<details class="more"><summary class="disclose">Ранние шаги: {{ hidden }}</summary>{% endif %}
+        <ol class="steps">
+          {% for s in steps %}
+          {% if hidden > 0 and loop.index == hidden + 1 %}</ol></details><ol class="steps">{% endif %}
+          <li class="{% if s.status in ('sent', 'answered') %}done{% elif s.status == 'skipped' %}skipped{% endif %}">
+            <span class="mark">{% if s.status == 'skipped' %}{{ icon("minus", "sm") }}{% elif s.status == 'reminded' %}{{ icon("clock", "sm") }}{% else %}{{ icon("check", "sm") }}{% endif %}</span>
+            <div class="tight small">{{ titles.get(s.step_id, "")|replace("{имя}", employee.first_name)|truncate(110) }}
+              <span class="caption">{{ {"sent": "отправлен", "answered": "есть ответ", "skipped": "пропущен", "reminded": "напомнили"}.get(s.status, s.status) }}</span></div>
+            <span class="when">{{ s.sent_at|local }}</span>
+          </li>
+          {% endfor %}
+        </ol>
       {% else %}<p class="empty">Пока ничего не отправлено.</p>{% endif %}
-    </div>
+      </div>
+    </section>
 
     {% if answers %}
-    <div class="card flat">
-      <div class="card-head" style="padding:20px 20px 0"><h2 class="section-title">Ответы на опросы</h2></div>
-      <div class="list">
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Ответы на опросы</h2></div>
+      <div class="card flat"><div class="list">
         {% for a in answers %}
-        <div><p class="small muted">{{ a.question|truncate(140) }}</p><p class="row" style="margin-top:4px"><b>{{ a.answer }}</b>{% if a.score is not none %}<span class="chip {% if a.score >= 8 %}ok{% elif a.score >= 5 %}warn{% else %}bad{% endif %}">{{ a.score }} из 10</span>{% endif %}</p></div>
+        <div><p class="small muted">{{ a.question|truncate(140) }}</p><p class="row"><b>{{ a.answer }}</b>{% if a.score is not none %}<span class="chip {% if a.score >= 8 %}ok{% elif a.score >= 5 %}warn{% else %}bad{% endif %}">{{ a.score }} из 10</span>{% endif %}</p></div>
         {% endfor %}
-      </div>
-    </div>
+      </div></div>
+    </section>
     {% endif %}
 
-    <div class="card flat">
-      <div class="card-head" style="padding:20px 20px 0"><h2 class="section-title">Переписка</h2></div>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Переписка</h2></div>
+      <div class="card flat">
       {% if messages %}
-      <div class="chat">
-        {% for m in messages %}
-        <div class="bubble {{ m.role }}"><span class="who">{{ {"employee": employee.first_name, "bot": "Корсик", "hr": "HR"}.get(m.role, m.role) }} · {{ m.created_at|local }}</span>{{ m.text }}</div>
-        {% endfor %}
-      </div>
+        <div class="chat">{% for m in messages %}<div class="bubble {{ m.role }}"><span class="who">{{ {"employee": employee.first_name, "bot": "Корсик", "hr": "HR"}.get(m.role, m.role) }} · {{ m.created_at|local }}</span>{{ m.text }}</div>{% endfor %}</div>
       {% else %}<p class="empty">Переписки пока нет.</p>{% endif %}
-    </div>
+      </div>
+    </section>
   </div>
 
-  <div class="stack-24">
-    <div class="card">
-      <h2 class="section-title" style="margin-bottom:16px">Данные</h2>
-      <dl class="kv">
-        <dt>Выход</dt><dd>{{ employee.start_date }}</dd>
-        <dt>Рабочее время</dt><dd>{{ schedule or "не ограничено: место не указано" }}</dd>
-        <dt>Часовой пояс</dt><dd>{{ employee.timezone|zone }}</dd>
-        <dt>Теги</dt><dd>{{ employee.tags or "нет" }}</dd>
-        <dt>В боте</dt><dd>{% if employee.linked_at %}с {{ employee.linked_at|local }}{% else %}ссылка не открыта{% endif %}</dd>
-      </dl>
-    </div>
+  <div>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Данные</h2></div>
+      <div class="card">
+        <dl class="kv">
+          <dt>Выход</dt><dd>{{ employee.start_date }}</dd>
+          <dt>Рабочее время</dt><dd>{{ schedule or "не ограничено: место не указано" }}</dd>
+          <dt>Часовой пояс</dt><dd>{{ employee.timezone|zone }}</dd>
+          <dt>Теги</dt><dd>{{ employee.tags or "нет" }}</dd>
+          <dt>В боте</dt><dd>{% if employee.linked_at %}с {{ employee.linked_at|local }}{% else %}ссылка не открыта{% endif %}</dd>
+        </dl>
+      </div>
+    </section>
 
-    <form method="post" action="/employees/{{ employee.id }}/move" class="card stack">
-      <h2 class="section-title">Место и рекрутер</h2>
-      <label class="field"><span>Место работы</span>
-        <select name="workplace_id"><option value="">Не указано</option>{% for w in workplaces %}<option value="{{ w.id }}"{% if w.id == employee.workplace_id %} selected{% endif %}>{{ w.name }}</option>{% endfor %}</select></label>
-      <label class="field"><span>Рекрутер</span>
-        <select name="recruiter_id"><option value="">Не назначен</option>{% for r in recruiters %}<option value="{{ r.id }}"{% if r.id == employee.recruiter_id %} selected{% endif %}>{{ r.name }}</option>{% endfor %}</select></label>
-      <button class="btn secondary">Сохранить</button>
-    </form>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Место и рекрутер</h2></div>
+      <form method="post" action="/employees/{{ employee.id }}/move" class="card">
+        <label class="field"><span>Место работы</span>
+          <select name="workplace_id"><option value="">Не указано</option>{% for w in workplaces %}<option value="{{ w.id }}"{% if w.id == employee.workplace_id %} selected{% endif %}>{{ w.name }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Рекрутер</span>
+          <select name="recruiter_id"><option value="">Не назначен</option>{% for r in recruiters %}<option value="{{ r.id }}"{% if r.id == employee.recruiter_id %} selected{% endif %}>{{ r.name }}</option>{% endfor %}</select></label>
+        <button class="btn secondary">Сохранить</button>
+      </form>
+    </section>
 
     {% if opened %}
-    <div class="card flat">
-      <div class="card-head" style="padding:20px 20px 0"><h2 class="section-title">Вопросы к HR</h2></div>
-      <div class="list">
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Вопросы к HR</h2></div>
+      <div class="card flat"><div class="list">
         {% for q in opened %}
         <div><p class="row between"><span class="caption">{{ q.created_at|local }}</span>{% if q.status == "open" %}<span class="chip warn">ждёт ответа</span>{% elif not q.delivered_at %}<span class="chip">ждёт рабочего времени</span>{% else %}<span class="chip ok">отвечен</span>{% endif %}</p>
-          <p class="text" style="margin-top:4px"><b>{{ q.question }}</b></p>{% if q.answer %}<p class="small muted text" style="margin-top:4px">{{ q.answer }}</p>{% endif %}</div>
+          <p class="text"><b>{{ q.question }}</b></p>{% if q.answer %}<p class="small muted text">{{ q.answer }}</p>{% endif %}</div>
         {% endfor %}
-      </div>
-    </div>
+      </div></div>
+    </section>
     {% endif %}
 
     {% if link and not new %}
-    <div class="card">
-      <h2 class="section-title" style="margin-bottom:12px">Ссылка и QR</h2>
-      <img class="qr" src="/employees/{{ employee.id }}/qr.png" alt="QR-код личной ссылки" width="200" height="200">
-      <p class="linkbox" style="margin-top:12px">{{ link }}</p>
-      {% if employee.max_user_id %}<p class="caption" style="margin-top:8px">Ссылка уже открыта, второй аккаунт по ней не войдёт.</p>{% endif %}
-    </div>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Ссылка и QR</h2></div>
+      <div class="card">
+        <img class="qr" src="/employees/{{ employee.id }}/qr.png" alt="QR-код личной ссылки" width="200" height="200">
+        <p class="linkbox">{{ link }}</p>
+        {% if employee.max_user_id %}<p class="caption">Ссылка уже открыта, второй аккаунт по ней не войдёт.</p>{% endif %}
+      </div>
+    </section>
     {% elif not link %}<div class="notice">Имя бота ещё не получено от МАКС, ссылки пока нет.</div>{% endif %}
   </div>
 </div>

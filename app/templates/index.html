@@ -7,34 +7,36 @@
   <a class="btn" href="/employees/new">{{ icon("plus", "sm") }}Добавить новичка</a>
 </div>
 
-<form class="search" method="get" action="/" role="search">
-  <input class="input" type="search" name="q" value="{{ q }}" placeholder="Поиск по имени" aria-label="Поиск по имени">
-  {% if workplaces %}
-  <select class="input" name="workplace" aria-label="Место работы">
-    <option value="">Все места работы</option>
-    {% for w in workplaces %}<option value="{{ w.id }}"{% if workplace == w.id|string %} selected{% endif %}>{{ w.name }}</option>{% endfor %}
-  </select>
-  {% endif %}
-  <select class="input" name="status" aria-label="Статус">
-    <option value="">Любой статус</option>
-    {% for key, name in [("attention", "Нужно внимание"), ("flag", "Красный флаг"), ("progress", "В процессе"), ("before", "Ждёт выхода"), ("not_linked", "Ссылка не открыта"), ("done", "Адаптация пройдена")] %}<option value="{{ key }}"{% if picked == key %} selected{% endif %}>{{ name }}</option>{% endfor %}
-  </select>
-  <button class="btn secondary compact">Показать</button>
-</form>
+<section class="section">
+  <form class="search" method="get" action="/" role="search">
+    <input class="input" type="search" name="q" value="{{ q }}" placeholder="Поиск по имени" aria-label="Поиск по имени">
+    {% if workplaces %}
+    <select class="input" name="workplace" aria-label="Место работы">
+      <option value="">Все места работы</option>
+      {% for w in workplaces %}<option value="{{ w.id }}"{% if workplace == w.id|string %} selected{% endif %}>{{ w.name }}</option>{% endfor %}
+    </select>
+    {% endif %}
+    <select class="input" name="status" aria-label="Статус">
+      <option value="">Любой статус</option>
+      {% for key, name in [("attention", "Нужно внимание"), ("flag", "Красный флаг"), ("progress", "В процессе"), ("before", "Ждёт выхода"), ("not_linked", "Ссылка не открыта"), ("done", "Адаптация пройдена")] %}<option value="{{ key }}"{% if picked == key %} selected{% endif %}>{{ name }}</option>{% endfor %}
+    </select>
+    <button class="btn secondary compact">Показать</button>
+  </form>
 
-{% if cards %}
-<div class="grid">
-  {% for c in cards %}{% set e = c.employee %}
-  <a class="card ecard" href="/employees/{{ e.id }}">
-    {{ person(e.full_name, (e.workplace_name or "место не указано") ~ " · " ~ c.when) }}
-    <p class="small muted">{{ e.recruiter_name or "рекрутер не назначен" }}{% if e.tags %} · {{ e.tags }}{% endif %}</p>
-    <div class="chips">{{ status_chip(c.status) }}{% if e.open_questions %}<span class="chip plain">вопросов: {{ e.open_questions }}</span>{% endif %}</div>
-  </a>
-  {% endfor %}
-</div>
-{% elif total %}
-<div class="card empty">Никого не нашли. Попробуй другое имя или сбрось фильтры. <p style="margin-top:12px"><a href="/">Показать всех</a></p></div>
-{% else %}
-<div class="card empty"><img src="/static/avatar.png" alt="" width="96" height="96"><p>Новичков пока нет. Добавь первого, бот пришлёт ему приветствие по личной ссылке.</p><p style="margin-top:16px"><a class="btn" href="/employees/new">Добавить новичка</a></p></div>
-{% endif %}
+  {% if cards %}
+  <div class="grid">
+    {% for c in cards %}{% set e = c.employee %}
+    <a class="card ecard" href="/employees/{{ e.id }}">
+      {{ person(e.full_name, (e.workplace_name or "место не указано") ~ " · " ~ c.when) }}
+      <p class="small muted">{{ e.recruiter_name or "рекрутер не назначен" }}{% if e.tags %} · {{ e.tags }}{% endif %}</p>
+      <div class="chips">{{ status_chip(c.status) }}{% if e.open_questions %}<span class="chip plain">вопросов: {{ e.open_questions }}</span>{% endif %}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% elif total %}
+  <div class="card empty"><p>Никого не нашли. Попробуй другое имя или сбрось фильтры.</p><a class="btn secondary compact" href="/">Показать всех</a></div>
+  {% else %}
+  <div class="card empty"><img src="/static/avatar.png" alt="" width="96" height="96"><p>Новичков пока нет. Добавь первого, бот пришлёт ему приветствие по личной ссылке.</p><a class="btn" href="/employees/new">Добавить новичка</a></div>
+  {% endif %}
+</section>
 {% endblock %}

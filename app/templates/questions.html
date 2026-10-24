@@ -5,21 +5,20 @@
 <div class="page-head"><div><h1 class="title">Вопросы</h1><p class="lead">То, на что бот не нашёл ответа в документах. Ответ придёт новичку в тот же чат.</p></div></div>
 
 {% for place, items in blocks.items() %}
-<section class="section" style="margin-top:0; margin-bottom:32px">
-  <div class="card-head"><h2 class="section-title">{{ place }}</h2><span class="badge">{{ items|length }}</span></div>
-  <div class="stack">
+<section class="section">
+  <div class="section-head"><h2 class="section-title">{{ place }}</h2><span class="badge">{{ items|length }}</span></div>
   {% for q, context, state in items %}
-  <div id="q{{ q.id }}" class="card stack{% if state.overdue %} late{% endif %}">
+  <div id="q{{ q.id }}" class="card{% if state.overdue %} late{% endif %}">
     <div class="row between">
-      <a class="person" href="/employees/{{ q.employee_id }}"><span class="avatar sm">{{ q.full_name|initials }}</span><span><span class="name">{{ q.full_name }}</span><br><span class="caption">{{ q.created_at|local }}{% if q.tags %} · {{ q.tags }}{% endif %}{% if q.recruiter_name %} · рекрутер {{ q.recruiter_name }}{% endif %}</span></span></a>
-      {% if state.overdue %}<span class="chip bad">{{ icon("clock", "sm") }}ждёт {{ state.waited }}</span>{% else %}<span class="chip warn">{{ icon("clock", "sm") }}ждёт {{ state.waited }}</span>{% endif %}
+      <a class="person" href="/employees/{{ q.employee_id }}"><span class="avatar sm">{{ q.full_name|initials }}</span><span class="tight"><span class="name">{{ q.full_name }}</span><span class="caption">{{ q.created_at|local }}{% if q.tags %} · {{ q.tags }}{% endif %}{% if q.recruiter_name %} · рекрутер {{ q.recruiter_name }}{% endif %}</span></span></a>
+      <span class="chip {% if state.overdue %}bad{% else %}warn{% endif %}">{{ icon("clock", "sm") }}ждёт {{ state.waited }}</span>
     </div>
-    <p class="text" style="font-size:18px; line-height:26px"><b>{{ q.question }}</b></p>
+    <p class="text question">{{ q.question }}</p>
     {% if q.recruiter_linked %}<p class="small muted">Рекрутер получил вопрос в МАКС, напоминаний {{ state.reminders }} из 5.</p>{% endif %}
     {% for note in state.notes %}<p class="notes">{{ note|capitalize }}</p>{% endfor %}
     {% if context %}
     <details><summary class="disclose">Последние сообщения</summary>
-      <div class="chat" style="padding:12px 0 0">{% for m in context %}<div class="bubble {{ m.role }}">{{ m.text }}</div>{% endfor %}</div>
+      <div class="chat flush">{% for m in context %}<div class="bubble {{ m.role }}">{{ m.text }}</div>{% endfor %}</div>
     </details>
     {% endif %}
     <form method="post" action="/questions/{{ q.id }}/answer" class="stack">
@@ -30,7 +29,6 @@
     </form>
   </div>
   {% endfor %}
-  </div>
 </section>
 {% else %}
 <div class="card empty"><img src="/static/avatar.png" alt="" width="96" height="96"><p>Открытых вопросов нет. Всё, о чём спрашивали новички, уже отвечено.</p></div>
@@ -38,11 +36,11 @@
 
 {% if waiting %}
 <section class="section">
-  <div class="card-head"><h2 class="section-title">Ждут рабочего времени новичка</h2></div>
+  <div class="section-head"><h2 class="section-title">Ждут рабочего времени новичка</h2></div>
   <div class="card flat"><div class="list">
     {% for q, when in waiting %}
     <div class="row between">
-      <div class="grow"><a href="/employees/{{ q.employee_id }}"><b>{{ q.full_name }}</b></a><p class="text small" style="margin-top:2px">{{ q.question }}</p><p class="text small muted" style="margin-top:2px">Ответ: {{ q.answer }}</p><p class="caption" style="margin-top:4px">Уйдёт {{ when }} по его времени</p></div>
+      <div class="tight grow"><a href="/employees/{{ q.employee_id }}"><b>{{ q.full_name }}</b></a><p class="text small">{{ q.question }}</p><p class="text small muted">Ответ: {{ q.answer }}</p><p class="caption">Уйдёт {{ when }} по его времени</p></div>
       <form method="post" action="/questions/{{ q.id }}/send-now" class="inline"><button class="btn secondary compact">Отправить сейчас</button></form>
     </div>
     {% endfor %}
@@ -52,13 +50,13 @@
 
 {% if answered %}
 <section class="section">
-  <div class="card-head"><h2 class="section-title">Недавние ответы</h2></div>
+  <div class="section-head"><h2 class="section-title">Недавние ответы</h2></div>
   <div class="card flat"><div class="list">
     {% for q in answered %}
-    <div class="row between" style="align-items:flex-start">
-      <div class="grow"><a href="/employees/{{ q.employee_id }}"><b>{{ q.full_name }}</b></a>{% if q.workplace_name %}<span class="caption"> · {{ q.workplace_name }}</span>{% endif %}
-        <p class="text small" style="margin-top:2px">{{ q.question }}</p><p class="text small muted" style="margin-top:2px">{{ q.answer }}</p></div>
-      <div class="caption" style="text-align:right">{{ q.answered_by }}<br>{{ q.answered_at|local }}{% if took.get(q.id) %}<br>за {{ took[q.id] }}{% endif %}</div>
+    <div class="row between top-align">
+      <div class="tight grow"><span><a href="/employees/{{ q.employee_id }}"><b>{{ q.full_name }}</b></a>{% if q.workplace_name %}<span class="caption"> · {{ q.workplace_name }}</span>{% endif %}</span>
+        <p class="text small">{{ q.question }}</p><p class="text small muted">{{ q.answer }}</p></div>
+      <div class="caption right">{{ q.answered_by }}<br>{{ q.answered_at|local }}{% if took.get(q.id) %}<br>за {{ took[q.id] }}{% endif %}</div>
     </div>
     {% endfor %}
   </div></div>

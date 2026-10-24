@@ -174,7 +174,7 @@ form.inline { display: inline; margin: 0; }
 .notice .quote { color: var(--text); margin-top: 8px; }
 .notice a { color: inherit; font-weight: 600; text-decoration: underline; }
 .flash { margin-bottom: 20px; }
-.late { border-color: var(--error); }
+
 
 /* tables only where columns are the point */
 .table-wrap { overflow-x: auto; }
@@ -227,8 +227,8 @@ details.more[open] summary { border-bottom: 1px solid var(--border); }
 
 /* selects get the same chevron and padding as the rest of the fields instead of the system arrow */
 select.input, .field select {
-  appearance: none; -webkit-appearance: none; padding-right: 48px; cursor: pointer;
-  background-image: url("chevron.svg"); background-repeat: no-repeat; background-position: right 16px center; background-size: 20px;
+  appearance: none; -webkit-appearance: none; padding-right: 56px; cursor: pointer;
+  background-image: url("chevron.svg"); background-repeat: no-repeat; background-position: right 20px center; background-size: 20px;
 }
 @media (prefers-color-scheme: dark) { select.input, .field select { background-image: url("chevron-dark.svg"); } }
 input[type=search]::-webkit-search-cancel-button { cursor: pointer; }
@@ -251,3 +251,45 @@ input[type=file]::file-selector-button {
   background: var(--raised); color: var(--text); font: 500 14px/20px "Inter", sans-serif; cursor: pointer;
 }
 .btn.ghost { font-weight: 500; }
+
+/* ===== spacing system: the only place where distances between blocks are decided =====
+   32 between sections of a page, 16 from a section title to its content and between neighbour cards,
+   20 inside a card, 12 between lines inside a card, 4 between a line and its caption */
+.page { display: flex; flex-direction: column; gap: 32px; }
+.page-head { margin: 0; }
+.page-head .lead { margin-top: 4px; }
+.section { display: flex; flex-direction: column; gap: 16px; margin: 0; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cols { display: grid; gap: 32px; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; }
+.cols > div { display: flex; flex-direction: column; gap: 32px; min-width: 0; }
+.card { display: flex; flex-direction: column; gap: 12px; }
+.card.flat { gap: 0; }
+.card > .card-head { margin: 0; }
+.grid, .kpis { gap: 16px; }
+.stack { gap: 12px; }
+.tight { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.list > * { padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; }
+.list > .row { flex-direction: row; align-items: center; gap: 12px; }
+.form { gap: 16px; }
+.field { gap: 8px; }
+.notice { display: flex; flex-direction: column; gap: 4px; }
+.notice b { margin: 0; }
+.notice .quote { margin-top: 4px; }
+.flash { margin: 0; }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.empty img { margin: 0; }
+.question { font-size: 18px; line-height: 26px; font-weight: 600; }
+.right { text-align: right; }
+.err { color: var(--error); }
+.top-align { align-items: flex-start; }
+.form.one { grid-template-columns: minmax(0, 1fr); }
+.narrow { max-width: 640px; }
+.app main { gap: 32px; }
+@media (max-width: 900px) {
+  .cols { grid-template-columns: minmax(0, 1fr); }
+}
+details.more > summary { padding: 16px 20px; }
+.chat.flush { padding: 12px 0 0; }
+details > summary.disclose + * { margin-top: 12px; }
+details > summary.stack { cursor: pointer; }
+details[open] > summary.stack { margin-bottom: 12px; }

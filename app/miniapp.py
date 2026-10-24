@@ -48,10 +48,15 @@ def local_time(stamp: str | None, tz: str | None = None) -> str:
 
 templates.filters["local"] = local_time
 templates.filters["initials"] = lambda name: "".join(w[0] for w in (name or "").split() if w[0].isalpha())[:2].upper() or "?"
-# the file's hash in the address: browsers keep static files for a day, a new version must not wait for that
-CSS_URL = "/static/korsik.css?v=" + hashlib.sha256(
-    (Path(__file__).parent / "static" / "korsik.css").read_bytes()).hexdigest()[:10]
-templates.globals["css"] = CSS_URL
+CSS_FILE = Path(__file__).parent / "static" / "korsik.css"
+
+
+def css_url() -> str:
+    # the file's change time in the address: browsers keep static files for a day, a new version must not wait
+    return f"/static/korsik.css?v={int(CSS_FILE.stat().st_mtime)}"
+
+
+templates.globals["css"] = css_url
 
 # The page itself has no data, so it is rendered once. Its policy lets in MAX's bridge and this one inline
 # script by its hash: nothing else can run on the page, even if some text slipped past the escaping.

@@ -4,27 +4,29 @@
 {% block content %}
 <div class="page-head"><div><h1 class="title">Рекрутеры</h1><p class="lead">Получают вопросы новичков и красные флаги в МАКС. Напоминания приходят раз в час, до пяти раз, только в рабочее время.</p></div></div>
 
-{% if recruiters %}
-<div class="grid">
-  {% for r in recruiters %}{% set st = stats[r.id] %}
-  <a class="card ecard" href="/recruiters/{{ r.id }}">
-    <div class="person"><span class="avatar">{{ r.name|initials }}</span><div class="grow"><div class="name">{{ r.name }}</div><div class="meta">{{ r|schedule }}</div></div></div>
-    <p class="small muted">{{ r.workplace_names or "Места работы не выбраны" }}</p>
-    <div class="chips">
-      {% if working[r.id] %}<span class="chip ok">работает</span>{% else %}<span class="chip plain">не работает</span>{% endif %}
-      {% if not r.max_user_id %}<span class="chip bad">МАКС не привязан</span>{% endif %}
-      {% if st.overdue %}<span class="chip bad">просрочено {{ st.overdue }}</span>{% elif st.open %}<span class="chip warn">ждут ответа {{ st.open }}</span>{% endif %}
-    </div>
-    <p class="small">Новичков: <b>{{ r.employees }}</b> · Отвечает обычно за: <b>{{ st.median or "нет ответов" }}</b></p>
-  </a>
-  {% endfor %}
-</div>
-{% else %}
-<div class="card empty">Рекрутеров пока нет.</div>
-{% endif %}
+<section class="section">
+  {% if recruiters %}
+  <div class="grid">
+    {% for r in recruiters %}{% set st = stats[r.id] %}
+    <a class="card ecard" href="/recruiters/{{ r.id }}">
+      <div class="person"><span class="avatar">{{ r.name|initials }}</span><div class="tight grow"><div class="name">{{ r.name }}</div><div class="meta">{{ r|schedule }}</div></div></div>
+      <p class="small muted">{{ r.workplace_names or "Места работы не выбраны" }}</p>
+      <div class="chips">
+        {% if working[r.id] %}<span class="chip ok">работает</span>{% else %}<span class="chip plain">не работает</span>{% endif %}
+        {% if not r.max_user_id %}<span class="chip bad">МАКС не привязан</span>{% endif %}
+        {% if st.overdue %}<span class="chip bad">просрочено {{ st.overdue }}</span>{% elif st.open %}<span class="chip warn">ждут ответа {{ st.open }}</span>{% endif %}
+      </div>
+      <p class="small">Новичков: <b>{{ r.employees }}</b> · Отвечает обычно за: <b>{{ st.median or "нет ответов" }}</b></p>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card empty">Рекрутеров пока нет.</div>
+  {% endif %}
+</section>
 
 <section class="section">
-  <div class="card-head"><h2 class="section-title">Добавить рекрутера</h2></div>
+  <div class="section-head"><h2 class="section-title">Добавить рекрутера</h2></div>
   <form method="post" action="/recruiters" class="card form">
     <label class="field full"><span>Имя</span><input name="name" required maxlength="200" placeholder="Ольга Петрова"></label>
     {{ schedule_fields(zones, default_zone, [1, 2, 3, 4, 5], "09:00", "18:00") }}

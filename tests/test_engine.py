@@ -560,7 +560,7 @@ def write_late_scenario(tmp_path, monkeypatch):
 
 def add_workplace_9_18():
     return db.execute("INSERT INTO workplaces (name, tags, timezone, work_days, work_start, work_end, created_at)"
-                      " VALUES ('Завод', 'GrPP', 'Europe/Moscow', '1,2,3,4,5', '09:00', '18:00', ?)", (db.now_iso(),))
+                      " VALUES ('GrPP', 'GrPP', 'Europe/Moscow', '1,2,3,4,5', '09:00', '18:00', ?)", (db.now_iso(),))
 
 
 def test_late_newcomer_gets_only_required_steps_short_three_a_day_in_working_hours(clock, outbox, tmp_path,

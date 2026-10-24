@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Кабинет HR{% endblock %} · Корсик</title>
-<link rel="stylesheet" href="{{ css }}">
+<link rel="stylesheet" href="{{ css() }}">
 <link rel="icon" href="/static/favicon.png">
 </head>
 <body>
@@ -26,10 +26,10 @@
       <form method="post" action="/logout"><button class="btn ghost">{{ icon("logout", "sm") }}Выйти</button></form>
     </div>
   </aside>
-  <main class="main">
+  <main class="main page">
     {% set late_questions = overdue_questions() %}
     {% if late_questions and not here.startswith("/questions") %}
-    <div class="notice bad flash"><b>Вопросы ждут ответа слишком долго: {{ late_questions }}</b>Рекрутер не отвечает или сейчас не работает. <a href="/questions">Открыть вопросы</a></div>
+    <div class="notice bad"><b>Вопросы ждут ответа слишком долго: {{ late_questions }}</b><span>Рекрутер не отвечает или сейчас не работает. <a href="/questions">Открыть вопросы</a></span></div>
     {% endif %}
     {% if flash %}<div class="notice flash {% if flash.bad %}bad{% else %}ok{% endif %}">{{ flash.text }}</div>{% endif %}
     {% block content %}{% endblock %}

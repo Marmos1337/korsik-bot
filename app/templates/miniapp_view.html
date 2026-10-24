@@ -2,13 +2,13 @@
 {% if message %}<div class="notice {% if bad %}bad{% else %}ok{% endif %}">{{ message }}</div>{% endif %}
 
 {% if recruiter %}
-<section class="stack">
+<section class="section">
   <h2 class="section-title">Вопросы новичков</h2>
   {% for place, items in blocks.items() %}
   <p class="small muted">{{ place }}</p>
   {% for q, state in items %}
-  <form method="post" action="/app/answer/{{ q.id }}" class="card stack{% if state.overdue %} late{% endif %}">
-    <div class="person"><span class="avatar sm">{{ q.full_name|initials }}</span><div class="grow"><div class="name">{{ q.full_name }}</div><div class="meta">{{ q.created_at|local }}</div></div></div>
+  <form method="post" action="/app/answer/{{ q.id }}" class="card{% if state.overdue %} late{% endif %}">
+    <div class="person"><span class="avatar sm">{{ q.full_name|initials }}</span><div class="tight grow"><div class="name">{{ q.full_name }}</div><div class="meta">{{ q.created_at|local }}</div></div></div>
     <p class="text"><b>{{ q.question }}</b></p>
     <div class="chips">{% if state.overdue %}<span class="chip bad">ждёт {{ state.waited }}</span>{% else %}<span class="chip warn">ждёт {{ state.waited }}</span>{% endif %}</div>
     <input type="hidden" name="employee_id" value="{{ q.employee_id }}">
@@ -22,15 +22,15 @@
   {% endfor %}
 </section>
 
-<section class="stack">
+<section class="section">
   <h2 class="section-title">Мои новички</h2>
   {% for n in newcomers %}{% set e = n.employee %}
   <details class="card">
-    <summary style="list-style:none; cursor:pointer">
-      <div class="person"><span class="avatar">{{ e.full_name|initials }}</span><div class="grow"><div class="name">{{ e.full_name }}</div><div class="meta">{{ n.workplace or "место не указано" }} · {{ n.card.when }}</div></div></div>
-      <div class="chips" style="margin-top:12px">{{ chip(n.card.status) }}</div>
+    <summary class="stack">
+      <div class="person"><span class="avatar">{{ e.full_name|initials }}</span><div class="tight grow"><div class="name">{{ e.full_name }}</div><div class="meta">{{ n.workplace or "место не указано" }} · {{ n.card.when }}</div></div></div>
+      <div class="chips">{{ chip(n.card.status) }}</div>
     </summary>
-    <div class="stack" style="margin-top:16px">
+    <div class="stack">
       {% for f in n.flags %}
       <div class="notice {% if f.risk == 2 %}bad{% else %}warn{% endif %}"><b>{% if f.risk == 2 %}Красный флаг{% else %}Нужно внимание{% endif %}: {{ f.topic }}</b><span class="caption">{{ f.created_at|local }}</span><p class="quote text">«{{ f.text }}»</p></div>
       {% endfor %}
@@ -40,7 +40,7 @@
         <dt>Шагов отправлено</dt><dd>{{ e.steps_sent }}</dd>
       </dl>
       {% if n.answers %}
-      <div class="stack" style="gap:8px">{% for a in n.answers %}<div><p class="caption">{{ a.question|truncate(90) }}</p><p class="small">{{ a.answer }}</p></div>{% endfor %}</div>
+      <div class="stack">{% for a in n.answers %}<div class="tight"><p class="caption">{{ a.question|truncate(90) }}</p><p class="small">{{ a.answer }}</p></div>{% endfor %}</div>
       {% endif %}
       {% if workplaces %}
       <form method="post" action="/app/move/{{ e.id }}" class="stack">
@@ -56,9 +56,9 @@
   {% endfor %}
 </section>
 
-<section class="stack">
+<section class="section">
   <h2 class="section-title">Мой график</h2>
-  <form method="post" action="/app/profile" class="card stack">
+  <form method="post" action="/app/profile" class="card">
     <p class="small muted">Сейчас {{ my_schedule }}. Напоминания о вопросах приходят только в это время.</p>
     <label class="field"><span>Часовой пояс</span>
       <select name="timezone">{% for name, label in zones.items() %}<option value="{{ name }}"{% if name == recruiter.timezone %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
@@ -70,16 +70,16 @@
   </form>
 </section>
 
-<section class="stack">
+<section class="section">
   <h2 class="section-title">Сводка</h2>
   <div class="card"><p class="small text">{{ digest }}</p></div>
 </section>
 {% endif %}
 
 {% if employee %}
-<section class="stack">
+<section class="section">
   <h2 class="section-title">{% if ty %}Твой{% else %}Ваш{% endif %} прогресс</h2>
-  <div class="card stack">
+  <div class="card">
     <p><b>{{ stage|capitalize }}</b></p>
     <div class="progress" role="progressbar" aria-label="Пройдено по плану" aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100"><span style="width: {{ progress }}%"></span></div>
     <p class="small muted">Пройдено шагов: {{ steps_done }} · {{ progress }}% плана</p>
@@ -87,7 +87,7 @@
   {% if employee.waiting %}
   <div class="notice warn">Бот ждёт {% if ty %}твоего{% else %}вашего{% endif %} ответа в чате.</div>
   {% elif next_step %}
-  <div class="card stack" style="gap:6px">
+  <div class="card">
     <p class="caption">Следующее сообщение: {{ next_step[1] }} по {% if ty %}твоему{% else %}вашему{% endif %} времени</p>
     <p class="small text">{{ next_step[0]|truncate(140) }}</p>
   </div>
@@ -96,10 +96,10 @@
   {% endif %}
 </section>
 
-<section class="stack">
+<section class="section">
   <h2 class="section-title">{% if ty %}Твои{% else %}Ваши{% endif %} вопросы к HR</h2>
   {% for q in my_questions %}
-  <div class="card stack" style="gap:6px">
+  <div class="card">
     <div class="row between"><span class="caption">{{ q.created_at|local(employee.timezone) }}</span>
       {% if q.status == "answered" and q.delivered_at %}<span class="chip ok">есть ответ</span>{% else %}<span class="chip warn">ждёт ответа</span>{% endif %}</div>
     <p class="text"><b>{{ q.question }}</b></p>

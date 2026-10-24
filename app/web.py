@@ -78,7 +78,7 @@ templates.env.globals["tz_name"] = cfg.DEFAULT_TZ
 templates.env.globals["open_questions"] = lambda: db.query_one(
     "SELECT COUNT(*) AS n FROM escalations WHERE status = 'open'")["n"]
 templates.env.globals["overdue_questions"] = hr.overdue_count
-templates.env.globals["css"] = miniapp.CSS_URL
+templates.env.globals["css"] = miniapp.css_url
 templates.env.globals["day_names"] = hours.DAY_NAMES
 templates.env.filters["schedule"] = lambda row: hours.from_row(row).describe()
 templates.env.filters["initials"] = lambda name: "".join(w[0] for w in (name or "").split() if w[0].isalpha())[:2].upper() or "?"
@@ -469,7 +469,7 @@ def save_workplace(request: Request, workplace_id: str = Form(""), name: str = F
     schedule, problem = read_schedule(tz, days, work_start, work_end)
     if schedule is None:
         return back(request, "/workplaces", problem, bad=True)
-    # sqlite lower() knows only Latin letters, «Завод» and «завод» are compared here
+    # sqlite lower() knows only Latin letters, «Площадка» and «площадка» are compared here
     same = next((row for row in db.query("SELECT id, name FROM workplaces") if row["name"].casefold() == name.casefold()),
                 None)
     if workplace_id.isdigit():

@@ -2,37 +2,41 @@
 {% from "_ui.html" import icon, schedule_fields %}
 {% block title %}Места работы{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1 class="title">Места работы</h1><p class="lead">Задают новичку теги (по ним приходят шаги и документы), часовой пояс и рабочие часы. В рабочие часы новичок получает ответы HR.</p></div></div>
-
-{% if workplaces %}
-<div class="grid">
-  {% for w in workplaces %}
-  <div class="card stack">
-    <div class="row between"><b style="font-size:18px">{{ w.name }}</b><span class="chip plain">{{ w.employees }} нов.</span></div>
-    <p class="small">{{ w|schedule }} · {{ w.timezone|zone }}</p>
-    <p class="small muted">Теги: {{ w.tags or "нет" }}<br>Рекрутеры: {{ w.recruiter_names or "не назначены" }}</p>
-    <details>
-      <summary class="disclose">Изменить</summary>
-      <form method="post" action="/workplaces" class="form" style="grid-template-columns:1fr; margin-top:16px">
-        <input type="hidden" name="workplace_id" value="{{ w.id }}">
-        <label class="field"><span>Название</span><input name="name" value="{{ w.name }}" required maxlength="200"></label>
-        <label class="field"><span>Теги</span><input name="tags" value="{{ w.tags }}" maxlength="200"></label>
-        {{ schedule_fields(zones, w.timezone, w.work_days.split(",")|map("int")|list, w.work_start, w.work_end) }}
-        <button class="btn compact">Сохранить</button>
-      </form>
-      {% if not w.employees %}<form method="post" action="/workplaces/{{ w.id }}/delete" style="margin-top:8px"><button class="btn ghost">Удалить место</button></form>{% endif %}
-    </details>
-  </div>
-  {% endfor %}
-</div>
-{% else %}
-<div class="card empty">Мест работы пока нет. Заведи первое ниже.</div>
-{% endif %}
+<div class="page-head"><div><h1 class="title">Места работы</h1><p class="lead">Площадки и офисы. Задают новичку теги (по ним приходят шаги и документы), часовой пояс и рабочие часы. В рабочие часы новичок получает ответы HR.</p></div></div>
 
 <section class="section">
-  <div class="card-head"><h2 class="section-title">Новое место работы</h2></div>
+  {% if workplaces %}
+  <div class="grid">
+    {% for w in workplaces %}
+    <div class="card">
+      <div class="row between"><b>{{ w.name }}</b><span class="chip plain">новичков: {{ w.employees }}</span></div>
+      <p class="small">{{ w|schedule }} · {{ w.timezone|zone }}</p>
+      <p class="small muted">Теги: {{ w.tags or "нет" }}<br>Рекрутеры: {{ w.recruiter_names or "не назначены" }}</p>
+      <details>
+        <summary class="disclose">Изменить</summary>
+        <div class="stack">
+          <form method="post" action="/workplaces" class="form one">
+            <input type="hidden" name="workplace_id" value="{{ w.id }}">
+            <label class="field"><span>Название</span><input name="name" value="{{ w.name }}" required maxlength="200"></label>
+            <label class="field"><span>Теги</span><input name="tags" value="{{ w.tags }}" maxlength="200"></label>
+            {{ schedule_fields(zones, w.timezone, w.work_days.split(",")|map("int")|list, w.work_start, w.work_end) }}
+            <button class="btn compact">Сохранить</button>
+          </form>
+          {% if not w.employees %}<form method="post" action="/workplaces/{{ w.id }}/delete"><button class="btn ghost">Удалить место</button></form>{% endif %}
+        </div>
+      </details>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card empty">Мест работы пока нет. Заведи первое ниже.</div>
+  {% endif %}
+</section>
+
+<section class="section">
+  <div class="section-head"><h2 class="section-title">Новое место работы</h2></div>
   <form method="post" action="/workplaces" class="card form">
-    <label class="field"><span>Название</span><input name="name" required maxlength="200" placeholder="Завод GrPP"></label>
+    <label class="field"><span>Название</span><input name="name" required maxlength="200" placeholder="Например, GrPP или Luzhniki"></label>
     <label class="field"><span>Теги</span><input name="tags" maxlength="200" placeholder="через запятую">{% if tags %}<small>Уже есть в сценарии и документах: {{ tags|join(", ") }}</small>{% endif %}</label>
     {{ schedule_fields(zones, default_zone, [1, 2, 3, 4, 5], "09:00", "18:00") }}
     <div class="actions full"><button class="btn">Добавить</button></div>

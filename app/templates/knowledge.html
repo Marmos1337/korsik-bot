@@ -4,11 +4,12 @@
 {% block content %}
 <div class="page-head"><div><h1 class="title">Документы</h1><p class="lead">Бот отвечает новичкам только по этим документам и всегда называет источник.</p></div></div>
 
+<section class="section">
 {% if documents %}
 <div class="card flat"><div class="list">
   {% for d in documents %}
   <div class="row between">
-    <div class="row grow"><span class="avatar sm">{{ icon("file", "sm") }}</span><div class="grow"><b>{{ d.title }}</b><p class="caption">{{ {"file": "файл", "hr_answers": "ответы HR", "demo": "демо"}.get(d.kind, d.kind) }} · фрагментов {{ d.chunks }} · {{ d.created_at|local }}</p></div></div>
+    <div class="row grow"><span class="avatar sm">{{ icon("file", "sm") }}</span><div class="tight grow"><b>{{ d.title }}</b><p class="caption">{{ {"file": "файл", "hr_answers": "ответы HR", "demo": "демо"}.get(d.kind, d.kind) }} · фрагментов {{ d.chunks }} · {{ d.created_at|local }}</p></div></div>
     <span class="chip {% if d.tags %}{% else %}plain{% endif %}">{{ d.tags or "для всех" }}</span>
     <form method="post" action="/knowledge/{{ d.id }}/delete" class="inline"><button class="btn ghost">Удалить</button></form>
   </div>
@@ -17,18 +18,18 @@
 {% else %}
 <div class="card empty">Документов пока нет. Загрузи первый ниже.</div>
 {% endif %}
+</section>
 
-<div class="grid-2 section">
-  <form method="post" action="/knowledge/upload" enctype="multipart/form-data" class="card form" style="grid-template-columns:1fr">
-    <h2 class="section-title">Загрузить документ</h2>
-    <label class="field"><span>Файл</span><input type="file" name="file" required accept=".pdf,.docx,.pptx,.txt,.md" style="padding-top:14px"><small>PDF, DOCX, PPTX, TXT или MD, до 20 МБ. Скан распознаётся, это может занять пару минут.</small></label>
+<div class="cols">
+  <div><section class="section"><div class="section-head"><h2 class="section-title">Загрузить документ</h2></div>
+  <form method="post" action="/knowledge/upload" enctype="multipart/form-data" class="card form one">
+    <label class="field"><span>Файл</span><input type="file" name="file" required accept=".pdf,.docx,.pptx,.txt,.md"><small>PDF, DOCX, PPTX, TXT или MD, до 20 МБ. Скан распознаётся, это может занять пару минут.</small></label>
     <label class="field"><span>Название</span><input name="title" maxlength="200"><small>Если пусто, берём имя файла</small></label>
     <label class="field"><span>Теги</span><input name="tags" maxlength="200" placeholder="через запятую"><small>Пусто: документ видят все новички</small></label>
     <button class="btn">Загрузить</button>
-  </form>
-  <div class="stack-24">
-    <form method="post" action="/knowledge/check" class="card form" style="grid-template-columns:1fr">
-      <h2 class="section-title">Проверить вопросом</h2>
+  </form></section></div>
+  <div><section class="section"><div class="section-head"><h2 class="section-title">Проверить вопросом</h2></div>
+    <form method="post" action="/knowledge/check" class="card form one">
       <p class="small muted">Так бот ищет для новичка с этими тегами. Документ с чужим тегом в ответ не попадёт.</p>
       <label class="field"><span>Вопрос</span><input name="question" required value="{{ question }}"></label>
       <label class="field"><span>Теги новичка</span><input name="tags" maxlength="200" value="{{ tags }}"></label>
@@ -36,9 +37,9 @@
     </form>
     {% if hits is not none %}
       {% if hits %}
-      <div class="card flat"><div class="list">{% for h in hits %}<div><p class="small"><b>{{ h.title }}</b>{% if h.section %} · п. {{ h.section }}{% endif %}</p><p class="small muted text" style="margin-top:4px">{{ h.text|truncate(400) }}</p></div>{% endfor %}</div></div>
+      <div class="card flat"><div class="list">{% for h in hits %}<div><p class="small"><b>{{ h.title }}</b>{% if h.section %} · п. {{ h.section }}{% endif %}</p><p class="small muted text">{{ h.text|truncate(400) }}</p></div>{% endfor %}</div></div>
       {% else %}<div class="notice warn">Ничего не нашлось. Бот в этом случае передал бы вопрос рекрутеру.</div>{% endif %}
     {% endif %}
-  </div>
+  </section></div>
 </div>
 {% endblock %}

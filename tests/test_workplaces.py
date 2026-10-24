@@ -67,7 +67,7 @@ def admin(monkeypatch):
     return client
 
 
-def add_workplace(name="Завод GrPP", tags="GrPP", tz="Europe/Moscow", days="1,2,3,4,5", start="09:00", end="18:00"):
+def add_workplace(name="GrPP", tags="GrPP", tz="Europe/Moscow", days="1,2,3,4,5", start="09:00", end="18:00"):
     return db.execute("INSERT INTO workplaces (name, tags, timezone, work_days, work_start, work_end, created_at)"
                       " VALUES (?, ?, ?, ?, ?, ?, ?)", (name, tags, tz, days, start, end, db.now_iso()))
 
@@ -268,8 +268,8 @@ def test_recruiter_stats_count_answers_and_their_speed():
 # workplaces
 
 def test_moving_a_newcomer_swaps_workplace_tags_and_keeps_own_tags():
-    grpp = add_workplace("Завод GrPP", "GrPP", "Europe/Moscow")
-    gtp = add_workplace("Завод GTP", "GTP", "Asia/Novosibirsk")
+    grpp = add_workplace("GrPP", "GrPP", "Europe/Moscow")
+    gtp = add_workplace("GTP", "GTP", "Asia/Novosibirsk")
     employee_id = add_employee(workplace_id=grpp, tags="GrPP, офис")
 
     hr.change_workplace(employee_id, gtp)
@@ -282,8 +282,8 @@ def test_moving_a_newcomer_swaps_workplace_tags_and_keeps_own_tags():
 def test_cabinet_workplace_recruiter_and_newcomer_flow(admin):
     schedule = {"timezone": "Asia/Novosibirsk", "days": ["1", "2", "3", "4", "5", "6"], "work_start": "08:00",
                 "work_end": "20:00"}
-    assert admin.post("/workplaces", data={"name": "Завод GTP", "tags": "GTP", **schedule}).status_code == 303
-    assert "уже есть" in admin.post("/workplaces", data={"name": "завод gtp", **schedule},
+    assert admin.post("/workplaces", data={"name": "GTP", "tags": "GTP", **schedule}).status_code == 303
+    assert "уже есть" in admin.post("/workplaces", data={"name": "gtp", **schedule},
                                     follow_redirects=True).text
     workplace = db.query_one("SELECT * FROM workplaces")
     assert workplace["work_days"] == "1,2,3,4,5,6" and workplace["work_start"] == "08:00"
@@ -306,7 +306,7 @@ def test_cabinet_workplace_recruiter_and_newcomer_flow(admin):
     assert "Выберите место работы" in admin.post("/employees", data=newcomer, follow_redirects=True).text
 
     page = admin.get(f"/recruiters/{recruiter['id']}").text
-    assert "Завод GTP" in page and "пн-пт 09:00-18:00" in page
+    assert "GTP" in page and "пн-пт 09:00-18:00" in page
     form.update(work_end="17:00", days=["1", "2", "3", "4"])
     assert admin.post(f"/recruiters/{recruiter['id']}", data=form).status_code == 303
     assert db.query_one("SELECT work_days, work_end FROM recruiters")[:] == ("1,2,3,4", "17:00")
@@ -317,8 +317,8 @@ def test_cabinet_workplace_recruiter_and_newcomer_flow(admin):
 
 
 def test_cabinet_shows_questions_by_workplace_with_red_banner(admin):
-    grpp = add_workplace("Завод GrPP")
-    gtp = add_workplace("Завод GTP", "GTP")
+    grpp = add_workplace("GrPP")
+    gtp = add_workplace("GTP", "GTP")
     add_question(add_employee(workplace_id=grpp, code="a", max_user_id=501), question="Где парковка?",
                  created=datetime.now(UTC) - timedelta(hours=5))
     add_question(add_employee(workplace_id=gtp, code="b", max_user_id=502), question="Где столовая?",
@@ -326,7 +326,7 @@ def test_cabinet_shows_questions_by_workplace_with_red_banner(admin):
 
     page = admin.get("/questions").text
 
-    assert page.index(">Завод GrPP<") < page.index("Где парковка?") < page.index(">Завод GTP<")
+    assert page.index(">GrPP<") < page.index("Где парковка?") < page.index(">GTP<")
     # both have no recruiter at all; the red banner is on every other page, the questions page shows them itself
     assert "Вопросы ждут ответа слишком долго: 2" in admin.get("/dashboard").text
     assert "Рекрутер не назначен" in page
@@ -370,9 +370,9 @@ def test_recruiter_sets_own_schedule_in_the_mini_app(app_client):
 def test_recruiter_moves_only_own_newcomer_in_the_mini_app(app_client):
     recruiter_id = add_recruiter(max_user_id=700)
     other = add_recruiter(name="Ира", max_user_id=701, code="ira")
-    mine = add_employee(recruiter_id=recruiter_id, workplace_id=add_workplace("Завод GrPP"), code="a", max_user_id=501)
+    mine = add_employee(recruiter_id=recruiter_id, workplace_id=add_workplace("GrPP"), code="a", max_user_id=501)
     theirs = add_employee(recruiter_id=other, code="b", max_user_id=502)
-    gtp = add_workplace("Завод GTP", "GTP")
+    gtp = add_workplace("GTP", "GTP")
     init = sign(fields_for(700))
 
     assert app_client.post(f"/app/move/{mine}", data={"init_data": init, "workplace_id": str(gtp)}).status_code == 200
@@ -384,9 +384,9 @@ def test_recruiter_moves_only_own_newcomer_in_the_mini_app(app_client):
 
 
 def test_editing_a_workplace_moves_its_newcomers_to_the_new_tags_and_zone(admin):
-    workplace = add_workplace("Завод", "GrPP", "Europe/Moscow")
+    workplace = add_workplace("Площадка", "GrPP", "Europe/Moscow")
     employee_id = add_employee(workplace_id=workplace, tags="GrPP, склад")
-    form = {"workplace_id": str(workplace), "name": "Завод", "tags": "Luzhniki", "timezone": "Europe/Samara",
+    form = {"workplace_id": str(workplace), "name": "Площадка", "tags": "Luzhniki", "timezone": "Europe/Samara",
             "days": ["1", "2", "3", "4", "5"], "work_start": "08:00", "work_end": "17:00"}
 
     assert admin.post("/workplaces", data=form).status_code == 303
