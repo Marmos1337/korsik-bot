@@ -42,7 +42,7 @@ cfg = SimpleNamespace(
     DEFAULT_TZ=env("DEFAULT_TZ", "Europe/Moscow"),
     STOP_TOPICS=[
         t.strip().lower()
-        for t in env("STOP_TOPICS", "зарплат,уволь,увольн,больничн,конфликт").split(",")
+        for t in env("STOP_TOPICS", "зарплат,увол,больничн,конфликт").split(",")
         if t.strip()
     ],
 )

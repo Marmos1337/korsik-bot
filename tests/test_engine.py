@@ -324,7 +324,8 @@ def test_survey_step_blocks_then_reminds_once_then_is_skipped(clock, outbox):
 
     clock.now = THIRD_DAY_1730 + timedelta(hours=48)
     run(engine.tick())
-    assert outbox == []
+    # Friday 17:30: the survey is dropped silently, only the weekly «как ты?» may go out
+    assert all(t.startswith("Как ты?") for t in texts(outbox))
     assert {k: v for k, v in statuses(employee_id).items() if k in ("20", "21", "22", "23")} == {
         "20": "skipped", "21": "skipped", "22": "skipped", "23": "skipped"}
 

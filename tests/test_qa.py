@@ -118,7 +118,8 @@ def test_answer_comes_from_fragments_with_source_and_register(model, found):
 
     source = "Правила внутреннего трудового распорядка, п. 6.6.1"
     assert (result.escalate, result.simple_mode) == (False, False)
-    assert result.text == f"Рабочий день начинается в 9:00.\n\nИсточник: {source}"
+    # the source is kept for HR, but under the answer only when the newcomer asks for it
+    assert result.text == "Рабочий день начинается в 9:00."
     assert result.sources == [source]
     rules, question = model["calls"][0][0]["content"], model["calls"][0][-1]["content"]
     assert "«вы»" in rules and "NO_ANSWER" in rules
@@ -167,8 +168,51 @@ def test_follow_up_is_rewritten_with_history_before_search(model, found):
     assert found["queries"] == ["До скольки работает столовая на площадке GrPP?"]
     rewrite = model["calls"][0][-1]["content"]
     assert "Где поесть на площадке?" in rewrite and "А до скольки она работает?" in rewrite
+    # the bot's own replies stay out of the rewrite, they made the model invent topics
+    assert "есть столовая" not in rewrite
     assert "Где поесть на площадке?" in model["calls"][1][-1]["content"]
-    assert result.text == "Столовая работает до 16:00.\n\nИсточник: ДЕМО: питание"
+    assert result.text == "Столовая работает до 16:00."
+    check = model["calls"][2][-1]["content"]
+    assert "Сотрудник написал: А до скольки она работает?" in check
+
+
+def test_follow_up_that_lost_its_number_is_searched_as_written(model, found):
+    employee = make_employee()
+    messaging.log_message(employee["id"], "employee", "Где найти рабочее расписание?")
+    messaging.log_message(employee["id"], "bot", "С 9:00 до 18:00. Перерыв на обед с 13:00 до 13:48.")
+    found["hits"] = [hit(WORK_TIME)]
+    model["replies"] = ["Положен ли перерыв на обед?", "NO_ANSWER"]
+
+    run(qa.answer_question(employee, "А если я работаю 20 часов?"))
+
+    assert found["queries"] == ["А если я работаю 20 часов?"]
+
+
+def test_follow_up_answer_that_misses_the_point_goes_to_hr(model, found):
+    employee = make_employee()
+    messaging.log_message(employee["id"], "employee", "Где найти рабочее расписание?")
+    found["hits"] = [hit(WORK_TIME)]
+    model["replies"] = ["Если я работаю 20 часов, какое у меня расписание?",
+                        "Если работаешь меньше четырёх часов, перерыв не положен.\nИсточник: 1", "НЕТ"]
+
+    result = run(qa.answer_question(employee, "А если я работаю 20 часов?"))
+
+    assert (result.escalate, result.reason) == (True, "unchecked")
+
+
+def test_source_goes_under_the_answer_when_asked_and_on_its_own_request(model, found):
+    employee = make_employee()
+    found["hits"] = [hit(WORK_TIME)]
+    model["replies"] = ["Рабочий день начинается в 9:00.\nИсточник: 1", "ДА"]
+    result = run(qa.answer_question(employee, "Где написано, во сколько начинается рабочий день?"))
+    assert result.text.endswith("Источник: Правила внутреннего трудового распорядка, п. 6.6.1")
+
+    db.execute("INSERT INTO bot_answers (employee_id, question, answer, sources, created_at) VALUES"
+               " (?, 'q', 'a', 'ПВТР, п. 6.6.1', ?)", (employee["id"], db.now_iso()))
+    for asked in ("А где это написано?", "Источник?", "Дай ссылку на документ"):
+        result = run(qa.answer_question(employee, asked))
+        assert (result.reason, result.text) == ("source", "Это из документа: ПВТР, п. 6.6.1"), asked
+    assert not qa.source_only("Где написано про отпуск?")
 
 
 def test_pronouns_after_a_preposition_mark_a_follow_up():
@@ -188,7 +232,7 @@ def test_question_that_stands_on_its_own_is_searched_as_is(model, found):
 
     assert found["queries"] == ["Где поесть?"]
     assert len(model["calls"]) == 1
-    assert result.text == "На площадке есть столовая.\n\nИсточник: ДЕМО: питание"
+    assert result.text == "На площадке есть столовая."
 
 
 def test_stop_topic_goes_to_the_recruiter_at_once(model, found):
@@ -210,7 +254,7 @@ def test_simple_mode_quotes_only_a_confident_keyword_match(ollama_off, tmp_path)
     result = run(qa.answer_question(employee, "Какой перерыв для отдыха и питания?"))
     assert (result.escalate, result.simple_mode) == (False, True)
     assert WORK_TIME in result.text
-    assert "Источник: Правила внутреннего трудового распорядка, п. 6.6.1" in result.text
+    assert "Источник" not in result.text and result.sources == ["Правила внутреннего трудового распорядка, п. 6.6.1"]
     assert result.text.endswith("Если это не то, напиши «нужен человек».")
 
     # «начинается» is not in the clause, so a quote could be about something else

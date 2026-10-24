@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS bot_answers (
     employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
     question TEXT NOT NULL,
     answer TEXT NOT NULL,
+    sources TEXT NOT NULL DEFAULT '',
     helpful INTEGER,
     created_at TEXT NOT NULL,
     rated_at TEXT

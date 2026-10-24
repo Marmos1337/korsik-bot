@@ -6,7 +6,7 @@ import math
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app import db, hours, hr, managers, max_api, messaging, tasks
+from app import care, db, hours, hr, managers, max_api, messaging, tasks
 from app.config import cfg
 from app.scenario import (
     SPECIAL_WHEN, START, ScenarioError, Step, is_bad_answer, load_holidays, load_scenario, render_text,
@@ -60,9 +60,11 @@ PHRASES = {
     "delete_cancel": ("Хорошо, ничего не удаляю.",) * 2,
     "help": (
         "Я пишу тебе в нужные моменты первых трёх месяцев и отвечаю на вопросы о работе. "
-        "Просто напиши вопрос своими словами.\n\n/delete - удалить свои данные",
+        "Просто напиши вопрос своими словами. Если тяжело или что-то не так, напиши «мне тяжело», "
+        "я выслушаю и позову рекрутера.\n\n/delete - удалить свои данные",
         "Я пишу вам в нужные моменты первых трёх месяцев и отвечаю на вопросы о работе. "
-        "Просто напишите вопрос своими словами.\n\n/delete - удалить свои данные",
+        "Просто напишите вопрос своими словами. Если тяжело или что-то не так, напишите «мне тяжело», "
+        "я выслушаю и позову рекрутера.\n\n/delete - удалить свои данные",
     ),
     "help_demo": ("/next - перемотать время к следующему шагу (демо)",) * 2,
     "next_off": ("Команда /next работает только в демо-режиме.",) * 2,
@@ -88,6 +90,7 @@ PHRASES = {
         "Не совсем понял вопрос. Напишите, пожалуйста, подробнее, и я поищу ответ в документах.",
     ),
     "found": ("Вот что сказано в документе:",) * 2,
+    "source_is": ("Это из документа:",) * 2,
     "simple_quote": (
         "⚙️ Сейчас я работаю в упрощённом режиме: умный поиск временно недоступен, поэтому отвечаю цитатой "
         "из документа. Если это не то, напиши «нужен человек».",
@@ -219,7 +222,10 @@ async def _advance(employee_id: int) -> int:
     sent = await _send_due(employee, now)
     employee = _employee(employee_id)
     # a nudge never interrupts the scenario: not in the same round as a step, not while a survey waits
-    await _check_tasks(employee, now, nudge=not sent and not _waiting(employee))
+    quiet = not sent and not _waiting(employee)
+    nudged = await _check_tasks(employee, now, nudge=quiet)
+    if quiet and not nudged and care.due_check_in(employee, now):
+        await care.check_in(employee, now)
     return sent
 
 
@@ -237,20 +243,21 @@ def _sync_tasks(employee) -> None:
         tasks.add_from_step(employee["id"], step.id, step.task, step.task_check, due)
 
 
-async def _check_tasks(employee, now: datetime, nudge: bool) -> None:
+async def _check_tasks(employee, now: datetime, nudge: bool) -> bool:
     """Asks about one overdue task at a time, in working hours; a task asked about twice goes to the recruiter."""
     schedule = hours.of_employee(employee)
     if nudge and (schedule is None or schedule.is_open(now, _holidays)):
         task = tasks.next_to_nudge(employee["id"], now)
         if task is not None:
             await tasks.nudge(employee, task, now)
-            return
+            return True
     for task in db.query("SELECT * FROM tasks WHERE employee_id = ? AND done_at IS NULL AND escalated_at IS NULL"
                          " AND nudges >= ?", (employee["id"], tasks.MAX_NUDGES)):
         if now - datetime.fromisoformat(task["nudged_at"]) >= tasks.NUDGE_EVERY:
             db.execute("UPDATE tasks SET escalated_at = ? WHERE id = ?", (_stamp(), task["id"]))
             await hr.notify_team(employee, f"Задача не выполнена: «{task['title']}». Новичок не ответил на два "
                                            "напоминания, возможно, ему нужна помощь.")
+    return False
 
 
 async def _stop_waiting(employee, waiting: dict) -> None:
@@ -378,6 +385,8 @@ async def on_callback(employee, payload: str, callback_id: str) -> None:
             await tasks.on_button(employee, rest, hr.notify_team)
         elif action == "fb":
             await hr.on_feedback(employee, rest)
+        elif action == "mood":
+            await care.on_mood(employee, rest)
         else:
             log.info("employee %s: unknown button payload", employee["id"])
 
@@ -388,6 +397,10 @@ async def on_text(employee, text: str) -> bool:
         waiting = _waiting(employee) if employee else None
         if not waiting:
             return False
+        if waiting["kind"] == "talk":
+            _clear_waiting(employee["id"])
+            await care.heard(employee, text)
+            return True
         step = _step(waiting["step"])
         if waiting["kind"] == "comment":
             question = phrase(employee, "what_wrong")

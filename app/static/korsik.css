@@ -313,6 +313,13 @@ button.tick:hover { border-color: var(--lavender); color: var(--lavender); trans
 .tile-link b { font: 700 28px/36px "Grandis", "Inter", sans-serif; }
 .tile-link span { font-size: 14px; line-height: 20px; color: var(--text-2); }
 
+/* «тяжело?»: a soft warm card that is easy to press and easy to ignore */
+.talk { margin: 0; }
+.talk-btn { width: 100%; border: 0; cursor: pointer; text-align: left; border-radius: 24px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; font: inherit; color: var(--text); background: linear-gradient(135deg, rgba(255, 179, 192, 0.28), rgba(138, 139, 253, 0.22)); box-shadow: var(--shadow); transition: transform .25s var(--ease), box-shadow .25s var(--ease); }
+.talk-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-up); }
+.talk-btn b { font-weight: 600; }
+.talk-btn span { font-size: 14px; line-height: 20px; color: var(--text-2); }
+
 /* lessons and their one question */
 .lesson.passed > summary b { color: var(--text-2); }
 .option { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--tile); cursor: pointer; transition: background .2s; }

@@ -15,7 +15,7 @@ from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse
 from markupsafe import escape
 
-from app import db, engine, hours, hr, learning, managers, risk, tasks
+from app import care, db, engine, hours, hr, learning, managers, risk, tasks
 from app.config import cfg
 from app.scenario import render_text
 
@@ -153,6 +153,22 @@ async def give_task(employee_id: int, init_data: str = Form(""), title: str = Fo
     except ValueError as e:
         return view(user_id, str(e))
     return view(user_id, f"{employee['full_name']}: задача добавлена.", bad=False)
+
+
+@router.post("/app/talk")
+async def want_to_talk(init_data: str = Form("")):
+    """«Мне тяжело» in the app: the bot writes in the chat and calls the recruiter in."""
+    try:
+        user_id = check_init_data(init_data, cfg.MAX_BOT_TOKEN)
+    except ValueError as e:
+        return refused(e)
+    employee = db.query_one("SELECT * FROM employees WHERE max_user_id = ?", (user_id,))
+    if employee is None:
+        return view(user_id, "Эта кнопка для новичков.", status=403)
+    await care.start_talk(employee, worried=True)
+    ty = employee["address"] == "ty"
+    return view(user_id, f"Я написал {'тебе' if ty else 'вам'} в чат. {'Расскажи' if ty else 'Расскажите'}, "
+                         "что случилось, рекрутер тоже уже в курсе.", bad=False)
 
 
 @router.post("/app/lesson/{lesson_id}")

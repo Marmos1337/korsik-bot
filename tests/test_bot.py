@@ -522,7 +522,7 @@ def test_newcomer_deleted_while_the_pulse_is_marked_leaves_no_trace(outbox, monk
     monkeypatch.setattr(qa, "answer_question", fake_answer)
 
     async def write_then_delete():
-        bot.dispatch(message_update("p1", user_id=500, text="Всё достало, хочу уволиться"))
+        bot.dispatch(message_update("p1", user_id=500, text="Всё достало, ничего не понимаю"))
         bot.dispatch(message_update("p2", user_id=500, text="/delete"))
         bot.dispatch(callback_update("p3", user_id=500, payload="del:yes"))
         for _ in range(300):

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from app import db, engine, hr, managers, max_api, messaging, qa
+from app import care, db, engine, hr, managers, max_api, messaging, qa
 from app.config import cfg
 
 log = logging.getLogger(__name__)
@@ -205,14 +205,22 @@ async def handle_text(employee, text: str) -> None:
 
 
 async def answer(employee, text: str) -> None:
+    if care.is_alarm(text) or care.wants_to_talk(text):
+        # someone close to leaving needs a person, not a clause about the notice period
+        if care.is_alarm(text):
+            await care.alarm(employee, text)
+        else:
+            await care.start_talk(employee, worried=True)
+        return
     result = await qa.answer_question(employee, text)
     if result.escalate:
         question = question_before(employee["id"]) if result.reason == "asked_human" else None
         await hr.escalate(employee, question or text, result.reason)
     elif result.text and result.reason == "answered":
         # an answer from the documents can be rated; 👎 passes the question on to HR
-        answer_id = db.execute("INSERT INTO bot_answers (employee_id, question, answer, created_at) VALUES (?, ?, ?, ?)",
-                               (employee["id"], text, result.text, db.now_iso()))
+        answer_id = db.execute("INSERT INTO bot_answers (employee_id, question, answer, sources, created_at)"
+                               " VALUES (?, ?, ?, ?, ?)",
+                               (employee["id"], text, result.text, "; ".join(result.sources), db.now_iso()))
         buttons = [[max_api.callback_button("👍 Помогло", f"fb:{answer_id}:1"),
                     max_api.callback_button("👎 Не то", f"fb:{answer_id}:0")]]
         await messaging.send_to_employee(employee, result.text, buttons=buttons)

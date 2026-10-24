@@ -24,7 +24,7 @@ EXPECTED_COLUMNS = {
     "chunks_fts": ["text", "chunk_id"],
     "tasks": ["id", "employee_id", "title", "check_text", "step_id", "added_by", "due_at", "done_at", "done_by",
               "nudges", "nudged_at", "escalated_at", "created_at"],
-    "bot_answers": ["id", "employee_id", "question", "answer", "helpful", "created_at", "rated_at"],
+    "bot_answers": ["id", "employee_id", "question", "answer", "sources", "helpful", "created_at", "rated_at"],
     "question_vectors": ["question", "embedding"],
     "managers": ["id", "name", "max_user_id", "invite_code", "created_at"],
     "lessons": ["id", "title", "body", "source", "tags", "position", "question", "options", "correct", "created_at"],

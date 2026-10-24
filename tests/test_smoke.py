@@ -177,7 +177,7 @@ def test_question_with_an_answer_in_the_documents_gets_it_with_a_source(world, t
 
     feed(write(NEWCOMER, "Во сколько начинается рабочий день?"))
 
-    assert texts_to(world, NEWCOMER) == ["Рабочий день начинается в 9:00.\n\nИсточник: ПВТР, п. 6.6.1"]
+    assert texts_to(world, NEWCOMER) == ["Рабочий день начинается в 9:00."]
     assert len(world.model_questions) == 1
     assert db.query("SELECT 1 FROM escalations") == []
     assert texts_to(world, RECRUITER) == []

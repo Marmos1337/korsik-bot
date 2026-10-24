@@ -49,7 +49,8 @@ ANSWER_RULES = """Ответь новому сотруднику компани�
 
 Правила:
 - Бери факты только из фрагментов. Ничего не додумывай и не добавляй из общих знаний.
-- Если во фрагментах нет ответа на вопрос, напиши только NO_ANSWER.
+- Отвечай ровно на заданный вопрос с его условиями (часы, дни, суммы). Не отвечай на соседний вопрос, даже если о нём есть во фрагментах.
+- Если во фрагментах нет ответа именно на этот вопрос, напиши только NO_ANSWER.
 - Обращайся к сотруднику на «{address}».
 - Пиши коротко и просто, обычным текстом без разметки.
 - Последней строкой напиши «Источник:» и номера фрагментов, из которых взят ответ, например: Источник: 2"""
@@ -59,14 +60,15 @@ CHECK_PROMPT = """Проверь ответ бота по фрагментам �
 Фрагменты:
 {fragments}
 
-Вопрос: {question}
+Сотрудник написал: {asked}
+Вопрос целиком: {question}
 Ответ бота: {answer}
 
-Ответ верный, только если каждое его утверждение прямо написано во фрагментах и относится именно к тому, о чём спрашивают. Если бот что-то додумал, перенёс сведения об одном на другое или ответил не на тот вопрос, ответ неверный. Напиши только ДА, если ответ верный, или НЕТ."""
+Ответ верный, только если каждое его утверждение прямо написано во фрагментах и отвечает именно на то, что написал сотрудник, с его условиями. Если бот что-то додумал, перенёс сведения об одном на другое, ответил не на тот вопрос или пропустил условие из вопроса, ответ неверный. Напиши только ДА, если ответ верный, или НЕТ."""
 
-REWRITE_PROMPT = """Перепиши последний вопрос сотрудника так, чтобы он был понятен без переписки: подставь, о чём идёт речь. Если вопрос и так понятен, верни его без изменений. Ответь только вопросом.
+REWRITE_PROMPT = """Перепиши последний вопрос сотрудника так, чтобы он был понятен без его прошлых вопросов: подставь только тему, о которой он спрашивал раньше. Сохрани все условия и числа последнего вопроса. Не добавляй ничего, о чём сотрудник не спрашивал. Если вопрос и так понятен, верни его без изменений. Ответь только вопросом.
 
-Переписка:
+Прошлые вопросы сотрудника:
 {dialog}
 
 Последний вопрос: {question}"""
@@ -90,6 +92,11 @@ async def answer_question(employee, question: str) -> Answer:
         return Answer(reply, [], False, "small_talk", False)
     if wants_human(question):
         return _escalation("asked_human")
+    if source_only(question):
+        last = db.query_one("SELECT sources FROM bot_answers WHERE employee_id = ? AND sources != ''"
+                            " ORDER BY id DESC LIMIT 1", (employee["id"],))
+        if last:
+            return Answer(_phrase(address, "source_is") + " " + last["sources"], [], False, "source", False)
     if is_stop_topic(question):
         return _escalation("stop_topic")
     if not _terms(question):
@@ -105,8 +112,10 @@ async def answer_question(employee, question: str) -> Answer:
 
 
 async def _answer_by_model(employee, question: str, tags: list[str]) -> Answer:
+    asked = question
     dialog = _dialog(employee["id"], question)
-    if dialog and is_follow_up(question):
+    follow_up = bool(dialog) and is_follow_up(question)
+    if follow_up:
         question = await _rewrite(question, dialog)
         if is_stop_topic(question):
             return _escalation("stop_topic")
@@ -147,12 +156,12 @@ async def _answer_by_model(employee, question: str, tags: list[str]) -> Answer:
     # a number can be in the fragments and still be about something else (the lunch break is not the canteen
     # hours), so an answer with numbers or contacts gets a second look; on answers without them the check
     # turned down correct lists too often to be worth it
-    if _has_facts(body) and not await _confirmed(question, body, numbered):
+    # a follow-up is always checked: the rewritten question may have drifted from what was asked
+    if (_has_facts(body) or follow_up) and not await _confirmed(asked, question, body, numbered):
         log.info("employee %s: the check did not confirm the answer", employee["id"])
         return _escalation("unchecked")
     sources = list(dict.fromkeys(_source(hits[i]) for i in cited))
-    label = "Источник" if len(sources) == 1 else "Источники"
-    return Answer(f"{body}\n\n{label}: {'; '.join(sources)}", sources, False, "answered", False)
+    return Answer(with_sources(body, sources, asked), sources, False, "answered", False)
 
 
 async def _answer_by_quote(question: str, tags: list[str], address: str | None) -> Answer:
@@ -160,9 +169,8 @@ async def _answer_by_quote(question: str, tags: list[str], address: str | None) 
     hit = _confident_hit(question, hits)
     if hit is None:
         return _escalation("no_match", simple_mode=True)
-    text = "\n\n".join([
-        _phrase(address, "found"), hit.text, f"Источник: {_source(hit)}", _phrase(address, "simple_quote"),
-    ])
+    text = "\n\n".join([_phrase(address, "found"), with_sources(hit.text, [_source(hit)], question),
+                          _phrase(address, "simple_quote")])
     return Answer(text, [_source(hit)], False, "answered", True)
 
 
@@ -178,19 +186,55 @@ def _confident_hit(question: str, hits: list[knowledge.Hit]) -> knowledge.Hit | 
     return None
 
 
-async def _confirmed(question: str, answer: str, fragments: str) -> bool:
-    prompt = CHECK_PROMPT.format(fragments=fragments, question=question, answer=answer)
+async def _confirmed(asked: str, question: str, answer: str, fragments: str) -> bool:
+    prompt = CHECK_PROMPT.format(fragments=fragments, asked=asked, question=question, answer=answer)
     verdict = await llm.chat([{"role": "user", "content": prompt}])
     return verdict.strip().upper().startswith("ДА")
 
 
 async def _rewrite(question: str, dialog: list[dict]) -> str:
-    prompt = REWRITE_PROMPT.format(dialog=_dialog_text(dialog), question=question)
+    # only the newcomer's own words: given the bot's replies, the model picked a topic from them that nobody asked
+    # about («а если я работаю 20 часов?» became a question about the lunch break)
+    own = [m for m in dialog if m["role"] == "employee"]
+    if not own:
+        return question
+    prompt = REWRITE_PROMPT.format(dialog=_dialog_text(own), question=question)
     rewritten = (await llm.chat([{"role": "user", "content": prompt}])).strip().strip("«»\"")
     # a runaway answer instead of a question is worse than the short original
     if not rewritten or len(rewritten) > 3 * len(question) + 200:
         return question
+    # a number the newcomer gave (20 hours, 3 days) must survive the rewrite, or it is another question
+    if not _numbers(question) <= _numbers(rewritten):
+        return question
     return rewritten
+
+
+SOURCE_WORDS = ("источник", "где написано", "где это написано", "откуда", "ссылк", "какой документ",
+                "каком документ", "какой пункт", "каком пункте", "пункт", "подтверд", "документ")
+
+
+def wants_source(text: str) -> bool:
+    lowered = text.lower().replace("ё", "е")
+    return any(word in lowered for word in SOURCE_WORDS)
+
+
+def with_sources(body: str, sources: list[str], asked: str) -> str:
+    """The document goes under the answer only when the newcomer asks where it is written."""
+    if not sources or not wants_source(asked):
+        return body
+    label = "Источник" if len(sources) == 1 else "Источники"
+    return f"{body}\n\n{label}: {'; '.join(sources)}"
+
+
+SOURCE_STEMS = ("источ", "напис", "откуд", "ссылк", "докум", "пункт", "подтв", "каком", "какой", "дай", "покаж",
+                "скин", "можн", "это", "где", "взял", "инфо")
+
+
+def source_only(text: str) -> bool:
+    """«А где это написано?», «источник?»: about the last answer, not a new question."""
+    if not wants_source(text) or len(_words(text)) > 6:
+        return False
+    return all(any(term.startswith(stem) or stem.startswith(term) for stem in SOURCE_STEMS) for term in _terms(text))
 
 
 def is_follow_up(question: str) -> bool:

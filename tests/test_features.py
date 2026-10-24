@@ -446,3 +446,52 @@ def test_recruiter_and_manager_give_tasks_only_to_their_newcomers(clock, outbox,
     assert r.status_code == 403 and not tasks.of_employee(stranger)
     page = app_client.post("/app/view", data={"init_data": sign(fields_for(800))}).text
     assert "Новички в подразделении" in page and "Смирнова Анна" in page and "Чужой" not in page
+
+
+# support when it is hard
+
+def test_words_about_leaving_get_support_not_a_clause_and_a_red_flag(clock, outbox, answered):
+    people = team(clock)
+    outbox.clear()
+    feed(write(500, "Я ничего не понимаю. Хочу уволиться."))
+    reply = to(outbox, 500)[-1]["text"]
+    assert "всё наладится" in reply and "что случилось" in reply.lower()
+    assert not db.query("SELECT 1 FROM bot_answers")  # the documents were not asked
+    flag = [m["text"] for m in to(outbox, 700) if "красный флаг" in m["text"]]
+    assert flag and "Хочу уволиться" in flag[0] and "напишите лично" in flag[0]
+    assert any("красный флаг" in m["text"] for m in to(outbox, 800))
+    assert db.query_one("SELECT risk FROM pulse WHERE employee_id = ?", (people["anna"],))["risk"] == 2
+
+    feed(write(500, "Наставник на меня кричит при всех", mid="t2"))
+    assert any("кричит при всех" in m["text"] for m in to(outbox, 700))
+    assert "Спасибо за откровенность" in to(outbox, 500)[-1]["text"]
+    assert db.query_one("SELECT waiting FROM employees WHERE id = ?", (people["anna"],))["waiting"] is None
+
+
+def test_weekly_check_in_on_friday_afternoon_with_mood_buttons(clock, outbox):
+    people = team(clock)
+    db.execute("UPDATE employees SET waiting = NULL WHERE id = ?", (people["anna"],))
+    friday_16 = datetime(2026, 11, 6, 13, 0, tzinfo=UTC)
+    clock.now = friday_16
+    for _ in range(4):  # the scenario and the task nudges go first
+        run(engine.advance(people["anna"]))
+        db.execute("UPDATE employees SET waiting = NULL WHERE id = ?", (people["anna"],))
+    asks = [m for m in to(outbox, 500) if m["text"].startswith("Как ты?")]
+    assert len(asks) == 1 and payloads(asks[0]) == ["mood:ok", "mood:meh", "mood:bad"]
+
+    feed(press(500, "mood:bad"))
+    assert "всё наладится" in to(outbox, 500)[-1]["text"]
+    assert any("новичку тяжело" in m["text"] for m in to(outbox, 700))
+    clock.now = friday_16 + timedelta(hours=1)
+    db.execute("UPDATE employees SET waiting = NULL WHERE id = ?", (people["anna"],))
+    run(engine.advance(people["anna"]))
+    assert len([m for m in to(outbox, 500) if m["text"].startswith("Как ты?")]) == 1
+
+
+def test_talk_button_in_the_app(clock, outbox, app_client):
+    people = team(clock)
+    page = app_client.post("/app/view", data={"init_data": sign(fields_for(500))}).text
+    assert "Тебе тяжело?" in page
+    r = app_client.post("/app/talk", data={"init_data": sign(fields_for(500))})
+    assert "Я написал тебе в чат" in r.text
+    assert any("новичку тяжело" in m["text"] for m in to(outbox, 700))

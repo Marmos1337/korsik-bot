@@ -201,6 +201,10 @@
   {% endif %}
 </section>
 
+<form method="post" action="/app/talk" class="talk">
+  <button class="talk-btn"><b>{% if ty %}Тебе тяжело?{% else %}Вам тяжело?{% endif %}</b><span>{% if ty %}Нажми, и я выслушаю, а рекрутер напишет лично{% else %}Нажмите, и я выслушаю, а рекрутер напишет лично{% endif %}</span></button>
+</form>
+
 <section class="section">
   <h2 class="section-title">Коротко</h2>
   <div class="grid-2x">
