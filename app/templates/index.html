@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_ui.html" import icon, status_chip, person %}
+{% from "_ui.html" import icon, status_chip, person, risk_chip %}
 {% block title %}Новички{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -18,7 +18,7 @@
     {% endif %}
     <select class="input" name="status" aria-label="Статус">
       <option value="">Любой статус</option>
-      {% for key, name in [("attention", "Нужно внимание"), ("flag", "Красный флаг"), ("progress", "В процессе"), ("before", "Ждёт выхода"), ("not_linked", "Ссылка не открыта"), ("done", "Адаптация пройдена")] %}<option value="{{ key }}"{% if picked == key %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      {% for key, name in [("risk", "Риск ухода"), ("attention", "Нужно внимание"), ("flag", "Красный флаг"), ("progress", "В процессе"), ("before", "Ждёт выхода"), ("not_linked", "Ссылка не открыта"), ("done", "Адаптация пройдена")] %}<option value="{{ key }}"{% if picked == key %} selected{% endif %}>{{ name }}</option>{% endfor %}
     </select>
     <button class="btn secondary compact">Показать</button>
   </form>
@@ -29,7 +29,7 @@
     <a class="card ecard" href="/employees/{{ e.id }}">
       {{ person(e.full_name, (e.workplace_name or "место не указано") ~ " · " ~ c.when) }}
       <p class="small muted">{{ e.recruiter_name or "рекрутер не назначен" }}{% if e.tags %} · {{ e.tags }}{% endif %}</p>
-      <div class="chips">{{ status_chip(c.status) }}{% if e.open_questions %}<span class="chip plain">вопросов: {{ e.open_questions }}</span>{% endif %}</div>
+      <div class="chips">{{ status_chip(c.status) }}{% if c.risk.level != "low" %}{{ risk_chip(c.risk) }}{% endif %}{% if e.open_questions %}<span class="chip plain">вопросов: {{ e.open_questions }}</span>{% endif %}</div>
     </a>
     {% endfor %}
   </div>

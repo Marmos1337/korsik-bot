@@ -1,5 +1,17 @@
 {% macro icon(name, cls="") %}<svg class="icon {{ cls }}" aria-hidden="true"><use href="#i-{{ name }}"></use></svg>{% endmacro %}
 
+{% macro risk_chip(r) %}{% set name = risk_levels[r.level] %}<span class="chip {{ name[1] }}" title="{{ r.reasons|join('; ') }}">{{ name[0] }}{% if r.score %} · {{ r.score }}{% endif %}</span>{% endmacro %}
+
+{% macro task_row(t, now, is_overdue, action_url, done_label="сделано") %}
+<div class="task{% if t.done_at %} done{% elif is_overdue(t, now) %} late{% endif %}">
+  <form method="post" action="{{ action_url }}" class="inline"><input type="hidden" name="action" value="{{ 'undo' if t.done_at else 'done' }}">
+    <button class="tick" aria-label="{{ 'Вернуть в работу' if t.done_at else 'Отметить выполненной' }}">{{ icon("check", "sm") }}</button></form>
+  <div class="tight grow"><span class="task-title">{{ t.title }}</span>
+    <span class="caption">{% if t.done_at %}{{ done_label }} {{ t.done_at|day }}{% if t.done_by %} · {{ t.done_by }}{% endif %}{% elif t.due_at %}срок {{ t.due_at|day }}{% else %}без срока{% endif %} · {{ t.added_by or "сценарий" }}{% if t.nudges and not t.done_at %} · бот спрашивал {{ t.nudges }} раз{% endif %}</span></div>
+  {% if not t.done_at and is_overdue(t, now) %}<span class="chip bad">просрочено</span>{% endif %}
+</div>
+{% endmacro %}
+
 {% macro status_chip(status) %}<span class="chip {{ status[1] }}">{{ status[0] }}</span>{% endmacro %}
 
 {% macro person(name, meta, size="") %}
@@ -35,6 +47,8 @@
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01"/><path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></symbol>
   <symbol id="i-minus" viewBox="0 0 24 24"><path d="M7 12h10"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M8 7h7M8 11h5"/></symbol>
+  <symbol id="i-task" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
   <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10 14"/><path d="M21 3 14 21l-4-7-7-4z"/></symbol>
 </svg>
 {% endmacro %}

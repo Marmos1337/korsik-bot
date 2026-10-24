@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from app import db, engine, hr, max_api, messaging, qa
+from app import db, engine, hr, managers, max_api, messaging, qa
 from app.config import cfg
 
 log = logging.getLogger(__name__)
@@ -148,6 +148,10 @@ async def handle_update(update: dict) -> None:
         await hr.handle_recruiter_update(recruiter, update)
         return
     if employee is None:
+        manager = db.query_one("SELECT * FROM managers WHERE max_user_id = ?", (user_id,))
+        if manager and kind == "message_created":
+            await managers.handle_update(manager, update)
+            return
         if kind in ("message_created", "bot_started"):
             log.info("%s from unknown user %s", kind, user_id)
             await messaging.send_to_user(user_id, UNKNOWN_USER_TEXT)
@@ -166,6 +170,12 @@ async def start_by_link(user: dict, code: str) -> None:
         recruiter = hr.link_recruiter(user["user_id"], code[3:])
         log.info("recruiter link from user %s: %s", user["user_id"], "ok" if recruiter else "unknown")
         text = hr.RECRUITER_LINKED.format(name=recruiter["name"]) if recruiter else hr.RECRUITER_LINK_UNKNOWN
+        await messaging.send_to_user(user["user_id"], text)
+        return
+    if code.startswith("mg_"):
+        manager = managers.link(user["user_id"], code[3:])
+        log.info("manager link from user %s: %s", user["user_id"], "ok" if manager else "unknown")
+        text = managers.LINKED.format(name=manager["name"]) if manager else managers.LINK_UNKNOWN
         await messaging.send_to_user(user["user_id"], text)
         return
     result = await engine.link_employee(user, code)
@@ -199,6 +209,13 @@ async def answer(employee, text: str) -> None:
     if result.escalate:
         question = question_before(employee["id"]) if result.reason == "asked_human" else None
         await hr.escalate(employee, question or text, result.reason)
+    elif result.text and result.reason == "answered":
+        # an answer from the documents can be rated; 👎 passes the question on to HR
+        answer_id = db.execute("INSERT INTO bot_answers (employee_id, question, answer, created_at) VALUES (?, ?, ?, ?)",
+                               (employee["id"], text, result.text, db.now_iso()))
+        buttons = [[max_api.callback_button("👍 Помогло", f"fb:{answer_id}:1"),
+                    max_api.callback_button("👎 Не то", f"fb:{answer_id}:0")]]
+        await messaging.send_to_employee(employee, result.text, buttons=buttons)
     elif result.text:
         await messaging.send_to_employee(employee, result.text)
     if result.reason not in ("small_talk", "unclear", "asked_human"):

@@ -16,7 +16,7 @@
   <aside class="side">
     <a class="brand" href="/dashboard"><img src="/static/logo_gradient.svg" alt="Корсик" width="84" height="26"></a>
     <nav class="menu" aria-label="Разделы">
-      {% for url, name, ic in [("/dashboard", "Дашборд", "dashboard"), ("/", "Новички", "users"), ("/questions", "Вопросы", "message"), ("/recruiters", "Рекрутеры", "recruiter"), ("/workplaces", "Места работы", "building"), ("/knowledge", "Документы", "file"), ("/scenario", "Сценарий", "list")] %}
+      {% for url, name, ic in [("/dashboard", "Дашборд", "dashboard"), ("/", "Новички", "users"), ("/questions", "Вопросы", "message"), ("/recruiters", "Рекрутеры", "recruiter"), ("/managers", "Руководители", "users"), ("/workplaces", "Места работы", "building"), ("/knowledge", "Документы", "file"), ("/learning", "Обучение", "book"), ("/scenario", "Сценарий", "list")] %}
       <a href="{{ url }}"{% if here == url or (url != "/" and here.startswith(url)) or (url == "/" and here.startswith("/employees")) %} aria-current="page"{% endif %}>{{ icon(ic) }}{{ name }}
         {% if url == "/questions" and open_questions() %}<span class="badge{% if overdue_questions() %} bad{% endif %}">{{ open_questions() }}</span>{% endif %}</a>
       {% endfor %}

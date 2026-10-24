@@ -15,7 +15,7 @@ from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse
 from markupsafe import escape
 
-from app import db, engine, hours, hr
+from app import db, engine, hours, hr, learning, managers, risk, tasks
 from app.config import cfg
 from app.scenario import render_text
 
@@ -47,6 +47,8 @@ def local_time(stamp: str | None, tz: str | None = None) -> str:
 
 
 templates.filters["local"] = local_time
+templates.filters["day"] = lambda stamp: datetime.fromisoformat(stamp).strftime("%d.%m") if stamp else ""
+templates.globals["risk_levels"] = risk.LEVELS
 templates.filters["initials"] = lambda name: "".join(w[0] for w in (name or "").split() if w[0].isalpha())[:2].upper() or "?"
 CSS_FILE = Path(__file__).parent / "static" / "korsik.css"
 
@@ -110,13 +112,75 @@ def app_page():
     return HTMLResponse(PAGE)
 
 
+TABS = ("home", "tasks", "learning", "questions")
+
+
 @router.post("/app/view")
-def show_view(init_data: str = Form("")):
+def show_view(init_data: str = Form(""), tab: str = Form("home"), lesson: int = Form(0)):
     try:
         user_id = check_init_data(init_data, cfg.MAX_BOT_TOKEN)
     except ValueError as e:
         return refused(e)
-    return view(user_id)
+    return view(user_id, tab=tab, lesson=lesson)
+
+
+@router.post("/app/task/{task_id}")
+def tick_task(task_id: int, init_data: str = Form(""), done: str = Form("1")):
+    """The newcomer ticks a task of their own checklist."""
+    try:
+        user_id = check_init_data(init_data, cfg.MAX_BOT_TOKEN)
+    except ValueError as e:
+        return refused(e)
+    employee = db.query_one("SELECT * FROM employees WHERE max_user_id = ?", (user_id,))
+    if employee is None or not tasks.set_done(task_id, employee["id"], done == "1", "новичок"):
+        return view(user_id, "Эту задачу отметить нельзя.", status=403, tab="tasks")
+    return view(user_id, tab="tasks")
+
+
+@router.post("/app/tasks/{employee_id}")
+async def give_task(employee_id: int, init_data: str = Form(""), title: str = Form(""), due: str = Form("")):
+    """A recruiter or a manager gives their own newcomer a task."""
+    try:
+        user_id = check_init_data(init_data, cfg.MAX_BOT_TOKEN)
+    except ValueError as e:
+        return refused(e)
+    who = _boss_of(user_id, employee_id)
+    if who is None:
+        return view(user_id, "Ставить задачи можно только своим новичкам.", status=403)
+    employee = db.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
+    try:
+        await tasks.add(employee, title, due, who)
+    except ValueError as e:
+        return view(user_id, str(e))
+    return view(user_id, f"{employee['full_name']}: задача добавлена.", bad=False)
+
+
+@router.post("/app/lesson/{lesson_id}")
+def answer_lesson(lesson_id: int, init_data: str = Form(""), choice: str = Form("")):
+    try:
+        user_id = check_init_data(init_data, cfg.MAX_BOT_TOKEN)
+    except ValueError as e:
+        return refused(e)
+    employee = db.query_one("SELECT * FROM employees WHERE max_user_id = ?", (user_id,))
+    if employee is None:
+        return view(user_id, "Обучение доступно только новичкам.", status=403)
+    try:
+        passed = learning.answer(employee, lesson_id, int(choice) if choice.isdigit() else None)
+    except ValueError as e:
+        return view(user_id, str(e), tab="learning")
+    if passed:
+        return view(user_id, "Верно! Урок пройден.", bad=False, tab="learning")
+    return view(user_id, "Не совсем. Перечитайте урок и попробуйте ещё раз.", tab="learning", lesson=lesson_id)
+
+
+def _boss_of(user_id: int, employee_id: int) -> str | None:
+    recruiter = db.query_one("SELECT r.name FROM recruiters r JOIN employees e ON e.recruiter_id = r.id"
+                             " WHERE r.max_user_id = ? AND e.id = ?", (user_id, employee_id))
+    if recruiter:
+        return f"Рекрутер {recruiter['name']}"
+    manager = db.query_one("SELECT m.name FROM managers m JOIN employees e ON e.manager_id = m.id"
+                           " WHERE m.max_user_id = ? AND e.id = ?", (user_id, employee_id))
+    return f"Руководитель {manager['name']}" if manager else None
 
 
 @router.post("/app/answer/{escalation_id}")
@@ -200,15 +264,23 @@ def refused(error: ValueError) -> HTMLResponse:
 
 
 def view(user_id: int, message: str = "", bad: bool = True, typed: tuple[int, str] = (0, ""),
-         status: int = 200) -> HTMLResponse:
-    """What this MAX user may see: a recruiter their newcomers, a newcomer their own progress, others nothing."""
+         status: int = 200, tab: str = "home", lesson: int = 0) -> HTMLResponse:
+    """What this MAX user may see: a recruiter or a manager their newcomers, a newcomer their own things, others nothing."""
     recruiter = db.query_one("SELECT * FROM recruiters WHERE max_user_id = ?", (user_id,))
     employee = db.query_one("SELECT * FROM employees WHERE max_user_id = ?", (user_id,))
-    context = {"message": message, "bad": bad, "typed": typed, "recruiter": recruiter, "employee": employee}
+    manager = db.query_one("SELECT * FROM managers WHERE max_user_id = ?", (user_id,))
+    context = {"message": message, "bad": bad, "typed": typed, "recruiter": recruiter, "employee": employee,
+               "manager": manager, "tab": tab if tab in TABS else "home", "open_lesson": lesson,
+               "task_list": tasks.of_employee, "is_overdue": tasks.is_overdue, "now_of": engine.employee_now,
+               "risk_of": risk.score}
     if recruiter:
         context |= recruiter_part(recruiter)
     if employee:
         context |= newcomer_part(employee)
+    if manager:
+        context["managed"] = db.query("SELECT * FROM employees WHERE manager_id = ? ORDER BY start_date DESC",
+                                      (manager["id"],))
+        context["card_of"] = managers.card
     return HTMLResponse(templates.get_template("miniapp_view.html").render(context), status)
 
 
@@ -249,9 +321,12 @@ def newcomer_part(employee) -> dict:
     planned = engine._timed_steps(employee)
     passed = {r["step_id"] for r in db.query("SELECT step_id FROM sent_steps WHERE employee_id = ?", (employee["id"],))}
     progress = round(100 * sum(1 for s in planned if s.id in passed) / len(planned)) if planned else 0
+    my_tasks = tasks.of_employee(employee["id"])
+    lessons = learning.for_employee(employee)
     return {"ty": employee["address"] == "ty", "stage": hr._stage(employee), "steps_done": steps_done,
-            "progress": progress,
-            "next_step": next_step(employee), "my_questions": questions}
+            "progress": progress, "next_step": next_step(employee), "my_questions": questions,
+            "my_tasks": my_tasks, "my_now": engine.employee_now(employee), "lessons": lessons,
+            "lessons_done": sum(1 for item in lessons if item["done"])}
 
 
 def next_step(employee) -> tuple[str, str] | None:

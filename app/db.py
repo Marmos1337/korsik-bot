@@ -126,6 +126,67 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     text, chunk_id UNINDEXED, tokenize='unicode61 remove_diacritics 2'
 );
 
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    check_text TEXT NOT NULL DEFAULT '',
+    step_id TEXT,
+    added_by TEXT NOT NULL DEFAULT '',
+    due_at TEXT,
+    done_at TEXT,
+    done_by TEXT,
+    nudges INTEGER NOT NULL DEFAULT 0,
+    nudged_at TEXT,
+    escalated_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (employee_id, step_id)
+);
+
+CREATE TABLE IF NOT EXISTS bot_answers (
+    id INTEGER PRIMARY KEY,
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    helpful INTEGER,
+    created_at TEXT NOT NULL,
+    rated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS question_vectors (
+    question TEXT PRIMARY KEY,
+    embedding BLOB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS managers (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    max_user_id INTEGER UNIQUE,
+    invite_code TEXT UNIQUE NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lessons (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    tags TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0,
+    question TEXT NOT NULL DEFAULT '',
+    options TEXT NOT NULL DEFAULT '',
+    correct INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lesson_progress (
+    employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+    lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+    done_at TEXT NOT NULL,
+    correct INTEGER,
+    PRIMARY KEY (employee_id, lesson_id)
+);
+
 CREATE TABLE IF NOT EXISTS kv (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -158,8 +219,9 @@ NEW_COLUMNS = {
                    ("work_days", "TEXT NOT NULL DEFAULT '1,2,3,4,5'"),
                    ("work_start", "TEXT NOT NULL DEFAULT '09:00'"),
                    ("work_end", "TEXT NOT NULL DEFAULT '18:00'")],
-    "employees": [("workplace_id", "INTEGER REFERENCES workplaces(id)")],
-    "escalations": [("delivered_at", "TEXT"), ("reminders", "INTEGER NOT NULL DEFAULT 0"), ("reminded_at", "TEXT")],
+    "employees": [("workplace_id", "INTEGER REFERENCES workplaces(id)"), ("manager_id", "INTEGER REFERENCES managers(id)")],
+    "escalations": [("delivered_at", "TEXT"), ("reminders", "INTEGER NOT NULL DEFAULT 0"), ("reminded_at", "TEXT"),
+                    ("reason", "TEXT NOT NULL DEFAULT ''")],
 }
 
 

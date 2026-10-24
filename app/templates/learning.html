@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon %}
+{% block title %}Обучение{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1 class="title">Обучение</h1><p class="lead">Короткие уроки по правилам внутреннего трудового распорядка и охране труда. Новичок проходит их во вкладке «Обучение» в приложении бота, в конце каждого урока один вопрос.</p></div></div>
+
+<div class="cols">
+  <div>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Уроки</h2><span class="muted small">{{ lessons|length }}</span></div>
+      {% for item in lessons %}{% set l = item.lesson %}
+      <div class="card">
+        <div class="row between top-align"><div class="tight grow"><b>{{ loop.index }}. {{ l.title }}</b><span class="caption">{{ l.source or "источник не указан" }}{% if l.tags %} · только {{ l.tags }}{% endif %}</span></div></div>
+        <p class="small text">{{ l.body }}</p>
+        {% if l.question %}<div class="quiz-preview"><p class="small"><b>{{ l.question }}</b></p>{% for o in item.options %}<p class="small{% if loop.index0 == l.correct %} right-answer{% else %} muted{% endif %}">{% if loop.index0 == l.correct %}{{ icon("check", "sm") }}{% endif %}{{ o }}</p>{% endfor %}</div>{% endif %}
+        <details><summary class="disclose">Изменить</summary>
+          <div class="stack">
+            <form method="post" action="/learning" class="form one">
+              <input type="hidden" name="lesson_id" value="{{ l.id }}">
+              <label class="field"><span>Название</span><input name="title" value="{{ l.title }}" required maxlength="200"></label>
+              <label class="field"><span>Текст</span><textarea name="body" rows="8" required>{{ l.body }}</textarea></label>
+              <label class="field"><span>Источник</span><input name="source" value="{{ l.source }}" maxlength="200"></label>
+              <label class="field"><span>Теги</span><input name="tags" value="{{ l.tags }}" maxlength="200"><small>Пусто: урок для всех</small></label>
+              <label class="field"><span>Вопрос</span><input name="question" value="{{ l.question }}" maxlength="300"></label>
+              <label class="field"><span>Варианты ответа</span><textarea name="options" rows="3">{{ item.options|join("\n") }}</textarea><small>Каждый с новой строки</small></label>
+              <label class="field"><span>Номер правильного варианта</span><input name="correct" value="{{ l.correct + 1 }}" inputmode="numeric" maxlength="2"></label>
+              <input type="hidden" name="position" value="{{ l.position }}">
+              <button class="btn compact">Сохранить</button>
+            </form>
+            <form method="post" action="/learning/{{ l.id }}/delete"><button class="btn ghost">Удалить урок</button></form>
+          </div>
+        </details>
+      </div>
+      {% else %}
+      <div class="card empty">Уроков пока нет. Добавьте первый.</div>
+      {% endfor %}
+    </section>
+  </div>
+  <div>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Кто прошёл</h2></div>
+      <div class="card flat">
+        {% if progress %}<div class="list">{% for p in progress %}
+        <a class="row between" href="/employees/{{ p.id }}"><span class="name">{{ p.name }}</span><span class="chip {% if p.total and p.done >= p.total %}ok{% elif p.done %}warn{% else %}plain{% endif %}">{{ p.done }} из {{ p.total }}</span></a>
+        {% endfor %}</div>
+        {% else %}<p class="empty">Новички ещё не открывали приложение.</p>{% endif %}
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Новый урок</h2></div>
+      <form method="post" action="/learning" class="card form one">
+        <label class="field"><span>Название</span><input name="title" required maxlength="200"></label>
+        <label class="field"><span>Текст</span><textarea name="body" rows="6" required></textarea></label>
+        <label class="field"><span>Источник</span><input name="source" maxlength="200" placeholder="Документ и пункт"></label>
+        <label class="field"><span>Теги</span><input name="tags" maxlength="200" placeholder="пусто: для всех"></label>
+        <label class="field"><span>Вопрос</span><input name="question" maxlength="300"></label>
+        <label class="field"><span>Варианты ответа</span><textarea name="options" rows="3"></textarea><small>Каждый с новой строки</small></label>
+        <label class="field"><span>Номер правильного варианта</span><input name="correct" value="1" inputmode="numeric" maxlength="2"></label>
+        <input type="hidden" name="position" value="{{ lessons|length }}">
+        <button class="btn">Добавить урок</button>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

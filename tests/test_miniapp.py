@@ -188,8 +188,8 @@ def team():
     return {"olga": olga, "igor": igor, "anna": anna, "petr": petr}
 
 
-def view_as(client, user_id):
-    return client.post("/app/view", data={"init_data": sign(fields_for(user_id))})
+def view_as(client, user_id, tab="home"):
+    return client.post("/app/view", data={"init_data": sign(fields_for(user_id)), "tab": tab})
 
 
 def answer_form(page, question_id):
@@ -317,6 +317,7 @@ def test_newcomer_sees_own_progress_next_step_and_questions(client, team):
     assert "Твой прогресс" in page and "Пройдено шагов: 1" in page
     # step 20 is on the third day at 17:30 in Novosibirsk, start Monday 2026-11-02
     assert "04.11 в 17:30" in page and "Как прошли первые дни, Анна?" in page
+    page = view_as(client, 500, tab="questions").text
     assert "Где взять пропуск?" in page and "ждёт ответа" in page
     assert "Где столовая?" in page and "На первом этаже" in page
     assert "Иванов Пётр" not in page and "Когда аванс?" not in page and "Не справляюсь" not in page
@@ -327,8 +328,9 @@ def test_newcomer_on_vy_gets_vy_texts_and_a_waiting_step_is_named(client, team):
     db.execute("UPDATE employees SET waiting = ? WHERE id = ?",
                (json.dumps({"step": "10", "kind": "step", "asked_at": "2026-11-02T07:00:00+00:00"}), team["petr"]))
     page = view_as(client, 600).text
-    assert "Ваш прогресс" in page and "Бот ждёт вашего ответа" in page and "Когда аванс?" in page
-    assert "Где взять пропуск?" not in page
+    assert "Ваш прогресс" in page and "Бот ждёт вашего ответа" in page
+    page = view_as(client, 600, tab="questions").text
+    assert "Ваши вопросы к HR" in page and "Когда аванс?" in page and "Где взять пропуск?" not in page
 
 
 def test_stranger_only_gets_the_text_about_the_link(client, team):

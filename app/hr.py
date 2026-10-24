@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app import db, engine, hours, knowledge, llm, max_api, messaging
+from app import db, engine, hours, knowledge, llm, max_api, messaging, risk
 from app.config import cfg
 
 log = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ REASONS = {
     "unchecked": "ответ модели не прошёл проверку по документам",
     "no_source": "модель не указала, из какого документа ответ",
     "asked_human": "новичок попросил ответ человека",
+    "bad_answer": "новичку не подошёл ответ бота из документов",
 }
 
 # word markers for the simple mode, when there is no model to read the mood
@@ -78,8 +79,8 @@ NOT_YOUR_QUESTION = "Этот новичок закреплён за други�
 async def escalate(employee, question: str, reason: str) -> int:
     context = messaging.history(employee["id"], CONTEXT_SIZE)
     escalation_id = db.execute(
-        "INSERT INTO escalations (employee_id, question, context, created_at) VALUES (?, ?, ?, ?)",
-        (employee["id"], question, json.dumps(context, ensure_ascii=False), db.now_iso()),
+        "INSERT INTO escalations (employee_id, question, context, created_at, reason) VALUES (?, ?, ?, ?, ?)",
+        (employee["id"], question, json.dumps(context, ensure_ascii=False), db.now_iso(), reason),
     )
     log.info("employee %s: question escalated (%s), escalation %s", employee["id"], reason, escalation_id)
     # sqlite gives the id of a deleted question to the next one, so an old «added to the base» mark must go
@@ -103,7 +104,7 @@ async def escalate(employee, question: str, reason: str) -> int:
 async def _tell_employee(employee, reason: str) -> None:
     if reason == "stop_topic":
         await engine.say(employee, "escalated_topic")
-    elif reason == "asked_human":
+    elif reason in ("asked_human", "bad_answer"):
         await engine.say(employee, "escalated_human")
     else:
         # without the model the bot only searched by words, so the employee should know why it gave up
@@ -230,6 +231,7 @@ async def followup_loop() -> None:
         try:
             await deliver_waiting_answers()
             await remind_recruiters()
+            await risk.warn_about_silent()
         except Exception:
             log.exception("follow-up round failed")
         await asyncio.sleep(FOLLOWUP_SECONDS)
@@ -498,6 +500,39 @@ async def notify_recruiter(employee, text: str, buttons=None) -> None:
         await _send_safely(recruiter["max_user_id"], None, text, buttons)
     if cfg.HR_CHAT_ID:
         await _send_safely(None, cfg.HR_CHAT_ID, text, buttons)
+
+
+async def on_feedback(employee, rest: str) -> None:
+    """👍 or 👎 under a bot answer. 👎 sends the question to the recruiter, as if the bot found nothing."""
+    answer_id, _, value = rest.partition(":")
+    row = db.query_one("SELECT * FROM bot_answers WHERE id = ? AND employee_id = ?",
+                       (int(answer_id) if answer_id.isdigit() else 0, employee["id"]))
+    if row is None or row["helpful"] is not None or value not in ("0", "1"):
+        return  # rated already: one more press must not send the question twice
+    db.execute("UPDATE bot_answers SET helpful = ?, rated_at = ? WHERE id = ?", (int(value), db.now_iso(), row["id"]))
+    messaging.log_message(employee["id"], "employee", "👍 Помогло" if value == "1" else "👎 Не то")
+    if value == "0":
+        await escalate(employee, row["question"], "bad_answer")
+
+
+def answer_ratings(days: int = 30) -> dict:
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+    rows = db.query("SELECT a.*, e.full_name FROM bot_answers a JOIN employees e ON e.id = a.employee_id"
+                    " WHERE a.created_at >= ? ORDER BY a.id DESC", (since,))
+    rated = [r for r in rows if r["helpful"] is not None]
+    good = sum(1 for r in rated if r["helpful"])
+    return {"total": len(rows), "rated": len(rated), "good": good,
+            "share": round(100 * good / len(rated)) if rated else None,
+            "bad": [r for r in rated if not r["helpful"]][:10]}
+
+
+async def notify_team(employee, text: str) -> None:
+    """The recruiter and the newcomer's manager, if there is one: things both should know."""
+    await notify_recruiter(employee, f"{_who(employee)}: {text}")
+    manager = db.query_one("SELECT * FROM managers WHERE id = ?", (employee["manager_id"],)) \
+        if employee["manager_id"] else None
+    if manager and manager["max_user_id"]:
+        await _send_safely(manager["max_user_id"], None, f"{_who(employee)}: {text}")
 
 
 async def _send_safely(user_id: int | None, chat_id: int | None, text: str, buttons=None) -> None:

@@ -23,7 +23,7 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.templating import Jinja2Templates
 
-from app import db, engine, hours, hr, knowledge, llm, miniapp
+from app import db, engine, gaps, hours, hr, knowledge, learning, llm, miniapp, risk, tasks
 from app.config import cfg
 from app.scenario import ScenarioError, Step, load_scenario, validate_scenario
 
@@ -78,6 +78,7 @@ templates.env.globals["tz_name"] = cfg.DEFAULT_TZ
 templates.env.globals["open_questions"] = lambda: db.query_one(
     "SELECT COUNT(*) AS n FROM escalations WHERE status = 'open'")["n"]
 templates.env.globals["overdue_questions"] = hr.overdue_count
+templates.env.globals["risk_levels"] = risk.LEVELS
 templates.env.globals["css"] = miniapp.css_url
 templates.env.globals["day_names"] = hours.DAY_NAMES
 templates.env.filters["schedule"] = lambda row: hours.from_row(row).describe()
@@ -180,14 +181,16 @@ def index(request: Request, q: str = "", workplace: str = "", status: str = ""):
         " FROM employees e LEFT JOIN recruiters r ON r.id = e.recruiter_id"
         " LEFT JOIN workplaces w ON w.id = e.workplace_id ORDER BY e.start_date DESC, e.id DESC"
     )
-    cards = [hr.newcomer_card(e) for e in employees]
+    cards = [hr.newcomer_card(e) | {"risk": risk.score(e)} for e in employees]
     total = len(cards)
     needle = q.strip().lower()
     if needle:
         cards = [c for c in cards if needle in c["employee"]["full_name"].lower()]
     if workplace.isdigit():
         cards = [c for c in cards if c["employee"]["workplace_id"] == int(workplace)]
-    if status:
+    if status == "risk":
+        cards = sorted((c for c in cards if c["risk"]["level"] != "low"), key=lambda c: -c["risk"]["score"])
+    elif status:
         cards = [c for c in cards if c["status"][2] == status]
     return page(request, "index.html", cards=cards, total=total, q=q, workplace=workplace, picked=status,
                 workplaces=list_workplaces(), model_up=llm.is_up())
@@ -198,7 +201,7 @@ def new_employee_form(request: Request):
     recruiters = db.query("SELECT id, name FROM recruiters ORDER BY name")
     default_zone = cfg.DEFAULT_TZ if cfg.DEFAULT_TZ in TIMEZONES else "Europe/Moscow"
     return page(request, "employee_new.html", recruiters=recruiters, zones=TIMEZONES, default_zone=default_zone,
-                tags=known_tags(), workplaces=list_workplaces())
+                tags=known_tags(), workplaces=list_workplaces(), managers=list_managers())
 
 
 def list_workplaces():
@@ -228,7 +231,7 @@ def known_tags() -> list[str]:
 @app.post("/employees")
 def add_employee(request: Request, full_name: str = Form(""), first_name: str = Form(""), start_date: str = Form(""),
                  tz: str = Form("", alias="timezone"), tags: str = Form(""), recruiter_id: str = Form(""),
-                 workplace_id: str = Form("")):
+                 workplace_id: str = Form(""), manager_id: str = Form("")):
     full_name = " ".join(full_name.split())
     workplace = None
     if workplace_id.strip():
@@ -270,13 +273,18 @@ def add_employee(request: Request, full_name: str = Form(""), first_name: str = 
                              and db.query_one("SELECT 1 FROM recruiters WHERE id = ?", (int(recruiter_id),))):
         return back(request, "/employees/new", "Такого рекрутера нет.", bad=True)
 
+    if manager_id and not (manager_id.isdigit()
+                           and db.query_one("SELECT 1 FROM managers WHERE id = ?", (int(manager_id),))):
+        return back(request, "/employees/new", "Такого руководителя нет.", bad=True)
+
     # «Фамилия Имя Отчество»: the name to address is the second word unless HR typed it separately
     first_name = first_name.strip() or (names[1] if len(names) > 1 else names[0])
     employee_id = db.execute(
         "INSERT INTO employees (full_name, first_name, start_date, timezone, tags, recruiter_id, invite_code,"
-        " created_at, workplace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " created_at, workplace_id, manager_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (full_name, first_name, start.isoformat(), tz, tags, int(recruiter_id) if recruiter_id else None,
-         secrets.token_hex(8), db.now_iso(), workplace["id"] if workplace else None),
+         secrets.token_hex(8), db.now_iso(), workplace["id"] if workplace else None,
+         int(manager_id) if manager_id else None),
     )
     return back(request, f"/employees/{employee_id}?new=1", "Новичок добавлен.")
 
@@ -308,11 +316,14 @@ def employee_card(request: Request, employee_id: int, new: str = ""):
                     " AS open_questions, (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 2)"
                     " AS red_flags, (SELECT COUNT(*) FROM pulse p WHERE p.employee_id = e.id AND p.risk = 1) AS worries"
                     " FROM employees e WHERE e.id = ?", (employee_id,))),
-                opened=db.query("SELECT * FROM escalations WHERE employee_id = ? ORDER BY id DESC", (employee_id,)))
+                opened=db.query("SELECT * FROM escalations WHERE employee_id = ? ORDER BY id DESC", (employee_id,)),
+                tasks=tasks.of_employee(employee_id), task_now=engine.employee_now(employee), is_overdue=tasks.is_overdue,
+                risk=risk.score(employee), lessons=learning.for_employee(employee), managers=list_managers())
 
 
 @app.post("/employees/{employee_id}/move")
-def move_employee(request: Request, employee_id: int, workplace_id: str = Form(""), recruiter_id: str = Form("")):
+def move_employee(request: Request, employee_id: int, workplace_id: str = Form(""), recruiter_id: str = Form(""),
+                  manager_id: str = Form("")):
     url = f"/employees/{employee_id}"
     employee = db.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
     if employee is None:
@@ -323,11 +334,14 @@ def move_employee(request: Request, employee_id: int, workplace_id: str = Form("
     if recruiter_id and not (recruiter_id.isdigit()
                              and db.query_one("SELECT 1 FROM recruiters WHERE id = ?", (int(recruiter_id),))):
         return back(request, url, "Такого рекрутера нет.", bad=True)
+    if manager_id and not (manager_id.isdigit()
+                           and db.query_one("SELECT 1 FROM managers WHERE id = ?", (int(manager_id),))):
+        return back(request, url, "Такого руководителя нет.", bad=True)
     new_workplace = int(workplace_id) if workplace_id else None
     if new_workplace != employee["workplace_id"]:
         hr.change_workplace(employee_id, new_workplace)
-    db.execute("UPDATE employees SET recruiter_id = ? WHERE id = ?",
-               (int(recruiter_id) if recruiter_id else None, employee_id))
+    db.execute("UPDATE employees SET recruiter_id = ?, manager_id = ? WHERE id = ?",
+               (int(recruiter_id) if recruiter_id else None, int(manager_id) if manager_id else None, employee_id))
     return back(request, url, "Сохранено. Следующие шаги и ответы пойдут по новому месту работы.")
 
 
@@ -547,9 +561,13 @@ def dashboard(request: Request):
     topics = db.query("SELECT topic, COUNT(*) AS n FROM pulse WHERE risk >= 1 AND topic != 'другое'"
                       " GROUP BY topic ORDER BY n DESC LIMIT 5")
     waiting = db.query_one("SELECT COUNT(*) AS n FROM escalations WHERE status = 'answered' AND delivered_at IS NULL")
+    at_risk = sorted(({"employee": e, "risk": risk.score(e, now)} for e in employees if e["max_user_id"]),
+                     key=lambda item: -item["risk"]["score"])
+    at_risk = [item for item in at_risk if item["risk"]["level"] != "low"]
+    overdue_tasks = sum(tasks.counts(e["id"], engine.employee_now(e))[2] for e in employees if e["max_user_id"])
     return page(request, "dashboard.html", stages=stages, total=len(employees), opened=opened, states=states,
                 places=places, recruiters=recruiters, red=red, topics=topics, model_up=llm.is_up(),
-                waiting=waiting["n"])
+                waiting=waiting["n"], at_risk=at_risk[:8], overdue_tasks=overdue_tasks, ratings=hr.answer_ratings())
 
 
 @app.get("/recruiters/{recruiter_id}/qr.png")
@@ -559,8 +577,9 @@ def recruiter_qr(recruiter_id: int):
 
 
 @app.get("/knowledge")
-def knowledge_page(request: Request):
-    return page(request, "knowledge.html", documents=list_documents(), hits=None, question="", tags="")
+async def knowledge_page(request: Request):
+    return page(request, "knowledge.html", documents=list_documents(), hits=None, question="", tags="",
+                gaps=await gaps.find(), ratings=hr.answer_ratings())
 
 
 def list_documents():
@@ -627,7 +646,8 @@ async def check_question(request: Request, question: str = Form(""), tags: str =
         return back(request, "/knowledge", "Впишите вопрос.", bad=True)
     # a POST, so the question does not end up in the access log
     hits = await knowledge.search(question, db.split_tags(tags))
-    return page(request, "knowledge.html", documents=list_documents(), hits=hits, question=question, tags=tags)
+    return page(request, "knowledge.html", documents=list_documents(), hits=hits, question=question, tags=tags,
+                gaps=await gaps.find(), ratings=hr.answer_ratings())
 
 
 @app.get("/questions")
@@ -845,3 +865,82 @@ def clean_cell(value):
         return value
     # control characters make openpyxl refuse the whole sheet, and a cell holds at most 32767 characters
     return ILLEGAL_CHARACTERS_RE.sub("", value)[:32000]
+
+
+@app.post("/employees/{employee_id}/tasks")
+async def add_task(request: Request, employee_id: int, title: str = Form(""), due: str = Form("")):
+    url = f"/employees/{employee_id}#tasks"
+    employee = db.query_one("SELECT * FROM employees WHERE id = ?", (employee_id,))
+    if employee is None:
+        raise HTTPException(404)
+    try:
+        await tasks.add(employee, title, due, "HR")
+    except ValueError as e:
+        return back(request, url, str(e), bad=True)
+    return back(request, url, "Задача добавлена." + (" Новичок получил её в чате." if employee["max_user_id"] else ""))
+
+
+@app.post("/employees/{employee_id}/tasks/{task_id}")
+def change_task(request: Request, employee_id: int, task_id: int, action: str = Form("")):
+    url = f"/employees/{employee_id}#tasks"
+    if action == "delete":
+        ok = tasks.remove(task_id, employee_id)
+    else:
+        ok = tasks.set_done(task_id, employee_id, action == "done", "HR")
+    if not ok:
+        return back(request, url, "Эту задачу нельзя изменить.", bad=True)
+    return back(request, url, "Сохранено.")
+
+
+def list_managers():
+    return db.query("SELECT m.*, (SELECT COUNT(*) FROM employees e WHERE e.manager_id = m.id) AS employees"
+                    " FROM managers m ORDER BY m.name")
+
+
+@app.get("/managers")
+def managers_page(request: Request):
+    rows = list_managers()
+    links = {row["id"]: engine.invite_link("mg_" + row["invite_code"]) for row in rows}
+    return page(request, "managers.html", managers=rows, links=links)
+
+
+@app.post("/managers")
+def add_manager(request: Request, name: str = Form("")):
+    name = " ".join(name.split())
+    if not name or len(name) > MAX_NAME:
+        return back(request, "/managers", "Впишите имя руководителя.", bad=True)
+    db.execute("INSERT INTO managers (name, invite_code, created_at) VALUES (?, ?, ?)",
+               (name, secrets.token_hex(8), db.now_iso()))
+    return back(request, "/managers", "Руководитель добавлен. Пусть откроет свою ссылку в МАКС.")
+
+
+@app.get("/managers/{manager_id}/qr.png")
+def manager_qr(manager_id: int):
+    manager = db.query_one("SELECT invite_code FROM managers WHERE id = ?", (manager_id,))
+    return qr_response(engine.invite_link("mg_" + manager["invite_code"]) if manager else None)
+
+
+@app.get("/learning")
+def learning_page(request: Request):
+    lessons = [{"lesson": row, "options": row["options"].split("\n") if row["options"] else []}
+               for row in learning.all_lessons()]
+    return page(request, "learning.html", lessons=lessons, progress=learning.progress())
+
+
+@app.post("/learning")
+def save_lesson(request: Request, lesson_id: str = Form(""), title: str = Form(""), body: str = Form(""),
+                source: str = Form(""), tags: str = Form(""), position: str = Form("0"), question: str = Form(""),
+                options: str = Form(""), correct: str = Form("1")):
+    try:
+        learning.save(int(lesson_id) if lesson_id.isdigit() else None, title, body, source, tags,
+                      int(position) if position.lstrip("-").isdigit() else 0, question, options.split("\n"),
+                      int(correct) - 1 if correct.isdigit() else -1)
+    except ValueError as e:
+        return back(request, "/learning", str(e), bad=True)
+    return back(request, "/learning", "Урок сохранён.")
+
+
+@app.post("/learning/{lesson_id}/delete")
+def delete_lesson(request: Request, lesson_id: int):
+    db.execute("DELETE FROM lessons WHERE id = ?", (lesson_id,))
+    return back(request, "/learning", "Урок удалён.")

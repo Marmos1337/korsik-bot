@@ -283,7 +283,48 @@ td.num { font-variant-numeric: tabular-nums; }
 .progress.thin { height: 6px; }
 .progress span { display: block; height: 100%; background: var(--cool); border-radius: 999px; transform-origin: left; animation: fill 1.1s var(--ease) both .2s; }
 
+/* checklist: a round tick that fills with the gradient when the task is done */
+.tasks { display: flex; flex-direction: column; gap: 8px; }
+.task-line { display: flex; align-items: center; gap: 8px; }
+.task-line > .task { flex: 1 1 auto; }
+.task { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--tile); margin: 0; transition: background .2s; }
+.card > form.task + form.task, .card > .task + .task { margin-top: -4px; }
+.task .task-title { font-weight: 500; overflow-wrap: break-word; }
+.task.done .task-title { color: var(--text-2); text-decoration: line-through; text-decoration-color: var(--border); }
+.task.late { background: var(--error-bg); }
+.tick { flex: none; width: 32px; height: 32px; border-radius: 999px; border: 2px solid var(--border); background: var(--surface); color: transparent; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: transform .2s var(--ease), background .2s, border-color .2s, color .2s; }
+span.tick { cursor: default; }
+button.tick:hover { border-color: var(--lavender); color: var(--lavender); transform: scale(1.08); }
+.task.done .tick { background: var(--cool); border-color: transparent; color: var(--on-gradient); animation: pop .35s var(--ease); }
+.task.late .tick { border-color: var(--error); }
+.add-task { display: grid; grid-template-columns: minmax(0, 1fr) 170px auto; gap: 8px; align-items: center; }
+.add-task .input { min-height: 48px; }
+
+/* mini app tabs: a soft segmented control */
+.tabs { display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); position: sticky; top: 8px; z-index: 2; }
+.tabs form { flex: 1 1 0; margin: 0; }
+.tab { width: 100%; min-height: 44px; border: 0; border-radius: 999px; background: transparent; color: var(--text-2); font: 500 14px/18px "Inter", sans-serif; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 6px; transition: background .2s, color .2s; }
+.tab[aria-current="page"] { background: var(--cool); color: var(--on-gradient); font-weight: 600; }
+.tab .badge { min-width: 20px; height: 20px; padding: 0 6px; background: var(--error-bg); color: var(--error); }
+.grid-2x { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.tile-link { margin: 0; }
+.tile-link button { width: 100%; text-align: left; border: 0; cursor: pointer; background: var(--surface); box-shadow: var(--shadow); border-radius: 24px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; color: var(--text); font: inherit; transition: transform .25s var(--ease), box-shadow .25s var(--ease); }
+.tile-link button:hover { transform: translateY(-2px); box-shadow: var(--shadow-up); }
+.tile-link b { font: 700 28px/36px "Grandis", "Inter", sans-serif; }
+.tile-link span { font-size: 14px; line-height: 20px; color: var(--text-2); }
+
+/* lessons and their one question */
+.lesson.passed > summary b { color: var(--text-2); }
+.option { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: var(--tile); cursor: pointer; transition: background .2s; }
+.option:hover { background: var(--raised); }
+.option input { accent-color: var(--lavender); width: 20px; height: 20px; margin: 0; flex: none; }
+.option:has(input:checked) { background: var(--cool-soft); }
+.quiz-preview { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 16px; background: var(--tile); }
+.quiz-preview p { display: flex; align-items: center; gap: 6px; }
+.right-answer { color: var(--success); font-weight: 500; }
+
 /* motion: content rises in place once, cards lift under the cursor */
+@keyframes pop { 0% { transform: scale(.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(168, 43, 61, 0.35); } 50% { box-shadow: 0 0 0 6px rgba(168, 43, 61, 0); } }
@@ -320,4 +361,5 @@ td.num { font-variant-numeric: tabular-nums; }
   .kv { grid-template-columns: 1fr; gap: 2px 0; }
   .kv dd { margin-bottom: 10px; }
   .right { text-align: left; }
+  .add-task { grid-template-columns: minmax(0, 1fr); }
 }

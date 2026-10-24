@@ -1,4 +1,21 @@
 {% macro chip(status) %}<span class="chip {{ status[1] }}">{{ status[0] }}</span>{% endmacro %}
+{% macro risk_chip(r) %}{% set name = risk_levels[r.level] %}<span class="chip {{ name[1] }}">{{ name[0] }}</span>{% endmacro %}
+{% macro check() %}<svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>{% endmacro %}
+{% macro boss_tasks(e) %}
+{% set list = task_list(e.id) %}{% set now = now_of(e) %}
+<div class="stack">
+  <p class="small muted">Задачи: {{ list|selectattr("done_at")|list|length }} из {{ list|length }} сделано</p>
+  {% for t in list %}
+  <div class="task{% if t.done_at %} done{% elif is_overdue(t, now) %} late{% endif %}"><span class="tick">{{ check() }}</span>
+    <div class="tight grow"><span class="task-title">{{ t.title }}</span><span class="caption">{% if t.done_at %}сделано {{ t.done_at|day }}{% elif t.due_at %}срок {{ t.due_at|day }}{% else %}без срока{% endif %} · {{ t.added_by }}</span></div></div>
+  {% endfor %}
+  <form method="post" action="/app/tasks/{{ e.id }}" class="stack">
+    <label class="field"><span>Новая задача</span><input name="title" required maxlength="200" placeholder="Например, получить пропуск на склад"></label>
+    <label class="field"><span>Срок</span><input type="date" name="due"></label>
+    <button class="btn secondary">Поставить задачу</button>
+  </form>
+</div>
+{% endmacro %}
 {% if message %}<div class="notice {% if bad %}bad{% else %}ok{% endif %}">{{ message }}</div>{% endif %}
 
 {% if recruiter %}
@@ -42,6 +59,7 @@
       {% if n.answers %}
       <div class="stack">{% for a in n.answers %}<div class="tight"><p class="caption">{{ a.question|truncate(90) }}</p><p class="small">{{ a.answer }}</p></div>{% endfor %}</div>
       {% endif %}
+      {{ boss_tasks(e) }}
       {% if workplaces %}
       <form method="post" action="/app/move/{{ e.id }}" class="stack">
         <label class="field"><span>Место работы</span>
@@ -76,7 +94,94 @@
 </section>
 {% endif %}
 
+{% if manager %}
+<section class="section">
+  <h2 class="section-title">Новички в подразделении</h2>
+  {% for e in managed %}
+  <details class="card">
+    <summary class="stack">
+      <div class="person"><span class="avatar">{{ e.full_name|initials }}</span><div class="tight grow"><div class="name">{{ e.full_name }}</div><div class="meta">выход {{ e.start_date }}</div></div></div>
+      {% if e.linked_at %}<div class="chips">{{ risk_chip(risk_of(e)) }}</div>{% endif %}
+    </summary>
+    <div class="stack">
+      <p class="small text">{{ card_of(e) }}</p>
+      {{ boss_tasks(e) }}
+    </div>
+  </details>
+  {% else %}
+  <div class="card empty">За вами пока не закреплён ни один новичок. HR выбирает руководителя в карточке новичка.</div>
+  {% endfor %}
+</section>
+{% endif %}
+
 {% if employee %}
+<nav class="tabs" aria-label="Разделы">
+  {% for key, name in [("home", "Главная"), ("tasks", "Задачи"), ("learning", "Обучение"), ("questions", "Вопросы")] %}
+  <form method="post" action="/app/view"><input type="hidden" name="tab" value="{{ key }}"><button class="tab"{% if tab == key %} aria-current="page"{% endif %}>{{ name }}{% if key == "tasks" %}{% set left = my_tasks|rejectattr("done_at")|list|length %}{% if left %} <span class="badge">{{ left }}</span>{% endif %}{% endif %}</button></form>
+  {% endfor %}
+</nav>
+
+{% if tab == "tasks" %}
+<section class="section">
+  <h2 class="section-title">{% if ty %}Твои{% else %}Ваши{% endif %} задачи</h2>
+  {% if my_tasks %}
+  <div class="card">
+    {% for t in my_tasks %}
+    <form method="post" action="/app/task/{{ t.id }}" class="task{% if t.done_at %} done{% elif is_overdue(t, my_now) %} late{% endif %}">
+      <input type="hidden" name="done" value="{{ '0' if t.done_at else '1' }}">
+      <button class="tick" aria-label="{{ 'Вернуть' if t.done_at else 'Отметить выполненной' }}">{{ check() }}</button>
+      <div class="tight grow"><span class="task-title">{{ t.title }}</span>
+        <span class="caption">{% if t.done_at %}сделано {{ t.done_at|day }}{% elif t.due_at %}срок {{ t.due_at|day }}{% if is_overdue(t, my_now) %}, уже прошёл{% endif %}{% else %}без срока{% endif %}{% if t.added_by and t.added_by != "сценарий" %} · {{ t.added_by }}{% endif %}</span></div>
+    </form>
+    {% endfor %}
+  </div>
+  <p class="caption">{% if ty %}Нажми{% else %}Нажмите{% endif %} на кружок, когда задача сделана. Если срок прошёл, бот спросит о ней в чате.</p>
+  {% else %}
+  <div class="card empty">Задач пока нет. Они появятся здесь, когда придёт время.</div>
+  {% endif %}
+</section>
+{% elif tab == "learning" %}
+<section class="section">
+  <h2 class="section-title">Обучение</h2>
+  <div class="card">
+    <p><b>Пройдено {{ lessons_done }} из {{ lessons|length }}</b></p>
+    <div class="progress"><span style="width: {{ ((lessons_done * 100 / lessons|length) if lessons else 0)|round|int }}%"></span></div>
+    <p class="small muted">Правила распорядка и охрана труда коротко. В конце каждого урока один вопрос.</p>
+  </div>
+  {% for item in lessons %}{% set l = item.lesson %}
+  <details class="card lesson{% if item.done %} passed{% endif %}"{% if open_lesson == l.id or (not open_lesson and not item.done and loop.index0 == lessons|selectattr("done")|list|length) %} open{% endif %}>
+    <summary class="stack"><div class="row between"><b>{{ loop.index }}. {{ l.title }}</b>{% if item.done %}<span class="chip ok">{{ check() }}пройден</span>{% endif %}</div></summary>
+    <div class="stack">
+      <p class="small text">{{ l.body }}</p>
+      {% if l.source %}<p class="caption">Источник: {{ l.source }}</p>{% endif %}
+      {% if l.question and not item.done %}
+      <form method="post" action="/app/lesson/{{ l.id }}" class="stack quiz">
+        <p class="small"><b>{{ l.question }}</b></p>
+        {% for o in item.options %}<label class="option"><input type="radio" name="choice" value="{{ loop.index0 }}" required><span>{{ o }}</span></label>{% endfor %}
+        <button class="btn">Проверить</button>
+      </form>
+      {% elif not item.done %}
+      <form method="post" action="/app/lesson/{{ l.id }}"><button class="btn">Прочитано</button></form>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+</section>
+{% elif tab == "questions" %}
+<section class="section">
+  <h2 class="section-title">{% if ty %}Твои{% else %}Ваши{% endif %} вопросы к HR</h2>
+  {% for q in my_questions %}
+  <div class="card">
+    <div class="row between"><span class="caption">{{ q.created_at|local(employee.timezone) }}</span>
+      {% if q.status == "answered" and q.delivered_at %}<span class="chip ok">есть ответ</span>{% else %}<span class="chip warn">ждёт ответа</span>{% endif %}</div>
+    <p class="text"><b>{{ q.question }}</b></p>
+    {% if q.status == "answered" and q.delivered_at %}<p class="small text">Ответ: {{ q.answer }}</p>{% endif %}
+  </div>
+  {% else %}
+  <div class="card empty">Вопросов к HR пока не было. Если бот не найдёт ответ в документах, вопрос появится здесь.</div>
+  {% endfor %}
+</section>
+{% else %}
 <section class="section">
   <h2 class="section-title">{% if ty %}Твой{% else %}Ваш{% endif %} прогресс</h2>
   <div class="card">
@@ -97,20 +202,15 @@
 </section>
 
 <section class="section">
-  <h2 class="section-title">{% if ty %}Твои{% else %}Ваши{% endif %} вопросы к HR</h2>
-  {% for q in my_questions %}
-  <div class="card">
-    <div class="row between"><span class="caption">{{ q.created_at|local(employee.timezone) }}</span>
-      {% if q.status == "answered" and q.delivered_at %}<span class="chip ok">есть ответ</span>{% else %}<span class="chip warn">ждёт ответа</span>{% endif %}</div>
-    <p class="text"><b>{{ q.question }}</b></p>
-    {% if q.status == "answered" and q.delivered_at %}<p class="small text">Ответ: {{ q.answer }}</p>{% endif %}
+  <h2 class="section-title">Коротко</h2>
+  <div class="grid-2x">
+    <form method="post" action="/app/view" class="tile-link"><input type="hidden" name="tab" value="tasks"><button>{% set left = my_tasks|rejectattr("done_at")|list|length %}<b>{{ left }}</b><span>{% if left %}задач ждут{% else %}все задачи сделаны{% endif %}</span></button></form>
+    <form method="post" action="/app/view" class="tile-link"><input type="hidden" name="tab" value="learning"><button><b>{{ lessons_done }}/{{ lessons|length }}</b><span>уроков пройдено</span></button></form>
   </div>
-  {% else %}
-  <div class="card empty">Вопросов к HR пока не было. Если бот не найдёт ответ в документах, вопрос появится здесь.</div>
-  {% endfor %}
 </section>
 {% endif %}
+{% endif %}
 
-{% if not recruiter and not employee %}
+{% if not recruiter and not employee and not manager %}
 <div class="card empty"><img src="/static/avatar.png" alt="" width="96" height="96"><p>Это приложение бота Корсик для новичков и рекрутеров. Открой бота по личной ссылке от рекрутера, после этого здесь появятся твои данные.</p></div>
 {% endif %}

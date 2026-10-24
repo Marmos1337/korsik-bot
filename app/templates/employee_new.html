@@ -23,6 +23,12 @@
       {% for r in recruiters %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}
     </select>
   </label>
+  {% if managers %}
+  <label class="field"><span>Руководитель</span>
+    <select name="manager_id"><option value="">Не назначен</option>{% for m in managers %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select>
+    <small>Получит подсказки на старте и памятки к встречам</small>
+  </label>
+  {% endif %}
   <label class="field"><span>Часовой пояс</span>
     <select name="timezone">
       {% if workplaces %}<option value="workplace" selected>Как у места работы</option>{% endif %}

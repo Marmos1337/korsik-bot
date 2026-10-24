@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon %}
+{% block title %}Руководители{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1 class="title">Руководители</h1><p class="lead">Руководитель подразделения получает в МАКС подсказки перед выходом новичка и памятки перед встречами: что обсудить и как у новичка дела по данным бота. В приложении бота он ставит новичку задачи.</p></div></div>
+
+<section class="section">
+  {% if managers %}
+  <div class="grid">
+    {% for m in managers %}
+    <div class="card">
+      <div class="person"><span class="avatar">{{ m.name|initials }}</span><div class="tight grow"><div class="name">{{ m.name }}</div><div class="meta">новичков: {{ m.employees }}</div></div>
+        {% if m.max_user_id %}<span class="chip ok">МАКС привязан</span>{% else %}<span class="chip bad">МАКС не привязан</span>{% endif %}</div>
+      {% if not m.max_user_id and links[m.id] %}
+      <details><summary class="disclose">Ссылка для привязки</summary>
+        <div class="stack"><img class="qr" src="/managers/{{ m.id }}/qr.png" alt="QR-код ссылки руководителя" width="200" height="200"><p class="linkbox">{{ links[m.id] }}</p></div>
+      </details>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card empty">Руководителей пока нет. Добавьте первого ниже, потом выберите его в карточке новичка.</div>
+  {% endif %}
+</section>
+
+<section class="section">
+  <div class="section-head"><h2 class="section-title">Добавить руководителя</h2></div>
+  <form method="post" action="/managers" class="card form one narrow">
+    <label class="field"><span>Имя</span><input name="name" required maxlength="200" placeholder="Иван Петров"></label>
+    <div class="actions"><button class="btn">Добавить</button><span class="small muted">Появится ссылка, по которой он привяжет свой МАКС.</span></div>
+  </form>
+</section>
+{% endblock %}

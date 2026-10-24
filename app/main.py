@@ -3,7 +3,7 @@ import logging
 
 import uvicorn
 
-from app import bot, db, engine, hr, knowledge, llm, max_api
+from app import bot, db, engine, hr, knowledge, learning, llm, max_api
 from app.config import cfg
 from app.web import app
 
@@ -32,6 +32,7 @@ async def wait_for_bot_name() -> None:
 
 async def main() -> None:
     db.init_db()
+    learning.seed()
     if not cfg.MAX_BOT_TOKEN:
         log.error("MAX_BOT_TOKEN is empty, the bot cannot talk to MAX")
     for problem in engine.reload_scenario():

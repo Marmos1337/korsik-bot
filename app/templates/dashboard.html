@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_ui.html" import icon %}
+{% from "_ui.html" import icon, risk_chip %}
 {% block title %}Дашборд{% endblock %}
 {% block content %}
 {% set late = [] %}{% for q in opened %}{% if states[q.id].overdue %}{% set _ = late.append(q) %}{% endif %}{% endfor %}
@@ -15,7 +15,23 @@
   <div class="kpi"><b>{{ opened|length }}</b><span>вопросов ждут ответа</span></div>
   <div class="kpi{% if late %} alarm{% endif %}"><b>{{ late|length }}</b><span>просрочено</span></div>
   <div class="kpi{% if red %} alarm{% endif %}"><b>{{ red|length }}</b><span>красных флагов за неделю</span></div>
+  <div class="kpi{% if overdue_tasks %} alarm{% endif %}"><b>{{ overdue_tasks }}</b><span>задач просрочено</span></div>
+  <div class="kpi"><b>{% if ratings.share is not none %}{{ ratings.share }}%{% else %}нет{% endif %}</b><span>ответов бота помогли{% if ratings.rated %}, оценок {{ ratings.rated }}{% endif %}</span></div>
 </div>
+
+{% if at_risk %}
+<section class="section">
+  <div class="section-head"><h2 class="section-title">В зоне риска</h2><a href="/?status=risk">Все</a></div>
+  <div class="card flat"><div class="list">
+    {% for item in at_risk %}{% set e = item.employee %}
+    <a class="row between" href="/employees/{{ e.id }}">
+      <span class="person"><span class="avatar sm">{{ e.full_name|initials }}</span><span class="tight"><span class="name">{{ e.full_name }}</span><span class="caption">{{ item.risk.reasons|join("; ") }}</span></span></span>
+      {{ risk_chip(item.risk) }}
+    </a>
+    {% endfor %}
+  </div></div>
+</section>
+{% endif %}
 
 {% if late %}
 <section class="section">

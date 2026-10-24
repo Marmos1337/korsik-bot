@@ -400,6 +400,6 @@ def test_newcomer_does_not_see_an_answer_that_waits_for_working_hours(app_client
     escalation = add_question(employee_id, question="Где парковка?")
     db.execute("UPDATE escalations SET status = 'answered', answer = 'Секретный ответ' WHERE id = ?", (escalation,))
 
-    view = app_client.post("/app/view", data={"init_data": sign(fields_for(500))}).text
+    view = app_client.post("/app/view", data={"init_data": sign(fields_for(500)), "tab": "questions"}).text
 
     assert "Где парковка?" in view and "Секретный ответ" not in view

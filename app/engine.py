@@ -1,11 +1,12 @@
 import asyncio
+import dataclasses
 import json
 import logging
 import math
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app import db, hours, hr, max_api, messaging
+from app import db, hours, hr, managers, max_api, messaging, tasks
 from app.config import cfg
 from app.scenario import (
     SPECIAL_WHEN, START, ScenarioError, Step, is_bad_answer, load_holidays, load_scenario, render_text,
@@ -214,7 +215,42 @@ async def _advance(employee_id: int) -> int:
         # a "что не так?" is optional, so it just expires after a day, without reminders
         await _stop_waiting(employee, waiting)
         employee = _employee(employee_id)
-    return await _send_due(employee, now)
+    _sync_tasks(employee)
+    sent = await _send_due(employee, now)
+    employee = _employee(employee_id)
+    # a nudge never interrupts the scenario: not in the same round as a step, not while a survey waits
+    await _check_tasks(employee, now, nudge=not sent and not _waiting(employee))
+    return sent
+
+
+def _sync_tasks(employee) -> None:
+    """Puts the scenario's tasks into the newcomer's checklist, all at once, with their deadlines."""
+    have = {r["step_id"] for r in db.query("SELECT step_id FROM tasks WHERE employee_id = ? AND step_id IS NOT NULL",
+                                          (employee["id"],))}
+    for step in _timed_steps(employee):
+        if not step.task or step.id in have:
+            continue
+        at = _due_at(employee, step)
+        if at is not None and _plan(employee, step, at) == "skip":
+            continue  # a late newcomer does not need to collect documents for a day already gone
+        due = _due_at(employee, dataclasses.replace(step, when=step.task_due)) if step.task_due else at
+        tasks.add_from_step(employee["id"], step.id, step.task, step.task_check, due)
+
+
+async def _check_tasks(employee, now: datetime, nudge: bool) -> None:
+    """Asks about one overdue task at a time, in working hours; a task asked about twice goes to the recruiter."""
+    schedule = hours.of_employee(employee)
+    if nudge and (schedule is None or schedule.is_open(now, _holidays)):
+        task = tasks.next_to_nudge(employee["id"], now)
+        if task is not None:
+            await tasks.nudge(employee, task, now)
+            return
+    for task in db.query("SELECT * FROM tasks WHERE employee_id = ? AND done_at IS NULL AND escalated_at IS NULL"
+                         " AND nudges >= ?", (employee["id"], tasks.MAX_NUDGES)):
+        if now - datetime.fromisoformat(task["nudged_at"]) >= tasks.NUDGE_EVERY:
+            db.execute("UPDATE tasks SET escalated_at = ? WHERE id = ?", (_stamp(), task["id"]))
+            await hr.notify_team(employee, f"Задача не выполнена: «{task['title']}». Новичок не ответил на два "
+                                           "напоминания, возможно, ему нужна помощь.")
 
 
 async def _stop_waiting(employee, waiting: dict) -> None:
@@ -289,6 +325,7 @@ async def _send_step(employee, step: Step, short: bool = False) -> None:
         text += "\n\n" + phrase(employee, "privacy")
     await messaging.send_to_employee(employee, text, buttons=_buttons(step), image=step.image or None)
     _mark(employee["id"], step.id, "sent")
+    await managers.on_step(employee, step)
     if step.kind in BLOCKING:
         _set_waiting(employee["id"], step.id, "step", employee_now(employee))
 
@@ -337,6 +374,10 @@ async def on_callback(employee, payload: str, callback_id: str) -> None:
             await _rate(employee, step_id, score)
         elif action == "del":
             await _delete(employee, rest == "yes")
+        elif action == "task":
+            await tasks.on_button(employee, rest, hr.notify_team)
+        elif action == "fb":
+            await hr.on_feedback(employee, rest)
         else:
             log.info("employee %s: unknown button payload", employee["id"])
 
@@ -520,7 +561,8 @@ def delete_employee_data(employee_id: int) -> None:
     conn = db.connect()
     try:
         with conn:
-            for table in ("messages", "answers", "pulse", "escalations", "sent_steps"):
+            for table in ("messages", "answers", "pulse", "escalations", "sent_steps", "tasks", "bot_answers",
+                          "lesson_progress"):
                 conn.execute(f"DELETE FROM {table} WHERE employee_id = ?", (employee_id,))
             conn.execute(
                 "UPDATE employees SET max_user_id = NULL, linked_at = NULL, address = NULL, waiting = NULL,"

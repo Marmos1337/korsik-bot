@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_ui.html" import icon, status_chip %}
+{% from "_ui.html" import icon, status_chip, risk_chip, task_row %}
 {% block title %}{{ employee.full_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -9,7 +9,7 @@
       <span class="avatar lg">{{ employee.full_name|initials }}</span>
       <div class="tight"><h1 class="title">{{ employee.full_name }}</h1>
         <p class="muted">{{ employee.workplace_name or "Место работы не указано" }} · {{ card.when }}</p>
-        <div class="chips">{{ status_chip(card.status) }}{% if employee.address %}<span class="chip plain">на «{{ "ты" if employee.address == "ty" else "вы" }}»</span>{% endif %}</div>
+        <div class="chips">{{ status_chip(card.status) }}{% if employee.linked_at %}{{ risk_chip(risk) }}{% endif %}{% if employee.address %}<span class="chip plain">на «{{ "ты" if employee.address == "ty" else "вы" }}»</span>{% endif %}</div>
       </div>
     </div>
   </div>
@@ -29,6 +29,30 @@
       </div>
     </section>
     {% endif %}
+
+    {% if risk.level != "low" %}
+    <div class="notice {{ risk_levels[risk.level][1] }}"><b>{{ risk_levels[risk.level][0]|capitalize }}: {{ risk.score }} из 100</b><span>{{ risk.reasons|join("; ") }}. Стоит поговорить с новичком лично.</span></div>
+    {% endif %}
+
+    <section class="section" id="tasks">
+      <div class="section-head"><h2 class="section-title">Задачи</h2>{% set left = tasks|rejectattr("done_at")|list|length %}<span class="muted small">{{ tasks|length - left }} из {{ tasks|length }} сделано</span></div>
+      <div class="card">
+        {% if tasks %}
+        <div class="tasks">
+          {% for t in tasks %}
+          <div class="task-line">{{ task_row(t, task_now, is_overdue, "/employees/" ~ employee.id ~ "/tasks/" ~ t.id) }}
+            {% if not t.step_id %}<form method="post" action="/employees/{{ employee.id }}/tasks/{{ t.id }}" class="inline"><input type="hidden" name="action" value="delete"><button class="btn ghost compact">Удалить</button></form>{% endif %}</div>
+          {% endfor %}
+        </div>
+        {% else %}<p class="muted small">Задач пока нет. Задачи из сценария появятся, когда новичок откроет ссылку.</p>{% endif %}
+        <form method="post" action="/employees/{{ employee.id }}/tasks" class="add-task">
+          <input class="input" name="title" required maxlength="200" placeholder="Например, принести справку об отсутствии судимости" aria-label="Задача">
+          <input class="input" type="date" name="due" aria-label="Срок">
+          <button class="btn compact">{{ icon("plus", "sm") }}Добавить</button>
+        </form>
+        <p class="caption">Бот спросит новичка о задаче после срока, в его рабочее время. После двух «ещё нет» напишет рекрутеру.</p>
+      </div>
+    </section>
 
     {% if flags or late %}
     <section class="section">
@@ -106,9 +130,21 @@
           <select name="workplace_id"><option value="">Не указано</option>{% for w in workplaces %}<option value="{{ w.id }}"{% if w.id == employee.workplace_id %} selected{% endif %}>{{ w.name }}</option>{% endfor %}</select></label>
         <label class="field"><span>Рекрутер</span>
           <select name="recruiter_id"><option value="">Не назначен</option>{% for r in recruiters %}<option value="{{ r.id }}"{% if r.id == employee.recruiter_id %} selected{% endif %}>{{ r.name }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Руководитель</span>
+          <select name="manager_id"><option value="">Не назначен</option>{% for m in managers %}<option value="{{ m.id }}"{% if m.id == employee.manager_id %} selected{% endif %}>{{ m.name }}</option>{% endfor %}</select></label>
         <button class="btn secondary">Сохранить</button>
       </form>
     </section>
+
+    {% if lessons %}
+    <section class="section">
+      <div class="section-head"><h2 class="section-title">Обучение</h2>{% set passed = lessons|selectattr("done")|list|length %}<span class="muted small">{{ passed }} из {{ lessons|length }}</span></div>
+      <div class="card">
+        <div class="progress thin"><span style="width: {{ (passed * 100 / lessons|length)|round|int }}%"></span></div>
+        <div class="chips">{% for item in lessons %}<span class="chip {% if item.done %}ok{% else %}plain{% endif %}">{% if item.done %}{{ icon("check", "sm") }}{% endif %}{{ item.lesson.title }}</span>{% endfor %}</div>
+      </div>
+    </section>
+    {% endif %}
 
     {% if opened %}
     <section class="section">

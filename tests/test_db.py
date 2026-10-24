@@ -9,6 +9,7 @@ EXPECTED_COLUMNS = {
     "employees": [
         "id", "full_name", "first_name", "start_date", "timezone", "tags", "recruiter_id",
         "invite_code", "max_user_id", "address", "linked_at", "time_shift", "waiting", "created_at", "workplace_id",
+        "manager_id",
     ],
     "sent_steps": ["employee_id", "step_id", "status", "sent_at", "answered_at"],
     "messages": ["id", "employee_id", "role", "text", "created_at"],
@@ -16,11 +17,18 @@ EXPECTED_COLUMNS = {
     "pulse": ["id", "employee_id", "text", "tone", "topic", "risk", "reason", "created_at"],
     "escalations": [
         "id", "employee_id", "question", "context", "status", "answer", "answered_by",
-        "created_at", "answered_at", "delivered_at", "reminders", "reminded_at",
+        "created_at", "answered_at", "delivered_at", "reminders", "reminded_at", "reason",
     ],
     "documents": ["id", "title", "filename", "tags", "kind", "created_at"],
     "chunks": ["id", "document_id", "section", "text", "embedding"],
     "chunks_fts": ["text", "chunk_id"],
+    "tasks": ["id", "employee_id", "title", "check_text", "step_id", "added_by", "due_at", "done_at", "done_by",
+              "nudges", "nudged_at", "escalated_at", "created_at"],
+    "bot_answers": ["id", "employee_id", "question", "answer", "helpful", "created_at", "rated_at"],
+    "question_vectors": ["question", "embedding"],
+    "managers": ["id", "name", "max_user_id", "invite_code", "created_at"],
+    "lessons": ["id", "title", "body", "source", "tags", "position", "question", "options", "correct", "created_at"],
+    "lesson_progress": ["employee_id", "lesson_id", "done_at", "correct"],
     "kv": ["key", "value"],
 }
 

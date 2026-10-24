@@ -25,6 +25,10 @@ COLUMNS = {
     "обязательный": "required",
     "кратко на «ты»": "short_ty",
     "кратко на «вы»": "short_vy",
+    "задача": "task",
+    "срок задачи": "task_due",
+    "проверка": "task_check",
+    "руководителю": "manager_text",
 }
 REQUIRED_COLUMNS = ("id", "when", "kind", "text_ty")
 KINDS = ("сообщение", "обращение", "вопрос", "опрос", "шкала", "текст")
@@ -65,6 +69,12 @@ class Step:
     required: bool = False
     short_ty: str = ""
     short_vy: str = ""
+    # a line in the newcomer's checklist, when the bot asks about it, and how
+    task: str = ""
+    task_due: str = ""
+    task_check: str = ""
+    # what the newcomer's manager gets when this step goes out: a memo before a meeting, tips for the start
+    manager_text: str = ""
 
 
 class ScenarioError(Exception):
@@ -289,6 +299,16 @@ def _parse_row(cells: dict[str, str], row: int, problems: list[str]) -> Step:
     if (cells["short_ty"] or cells["short_vy"]) and not required:
         problem("короткий текст нужен только обязательному шагу: его получит новичок, который пришёл поздно")
 
+    task_due = _norm(cells["task_due"])
+    if cells["task"] and after:
+        problem("задача бывает только у шага с «Когда»")
+    if (task_due or cells["task_check"]) and not cells["task"]:
+        problem("«Срок задачи» и «Проверка» нужны только вместе с «Задачей»")
+    if task_due and _parse_when(task_due) is None:
+        problem(f"не понял «Срок задачи»: «{cells['task_due']}», пишется как «Когда», например «р5 17:00»")
+    if cells["manager_text"] and after:
+        problem("текст руководителю бывает только у шага с «Когда»")
+
     image = cells["image"]
     if image and not IMAGE_RE.fullmatch(image):
         problem(f"картинка «{image}»: нужно имя файла из data/images, например img_03.png")
@@ -296,7 +316,8 @@ def _parse_row(cells: dict[str, str], row: int, problems: list[str]) -> Step:
     step = Step(id=cells["id"], when="" if after else when, after=after, tags=tags, kind=kind,
                 text_ty=cells["text_ty"], text_vy=cells["text_vy"], buttons=buttons,
                 bad_answer=bad, image=image, row=row, required=required,
-                short_ty=cells["short_ty"], short_vy=cells["short_vy"])
+                short_ty=cells["short_ty"], short_vy=cells["short_vy"], task=cells["task"], task_due=task_due,
+                task_check=cells["task_check"], manager_text=cells["manager_text"])
 
     for label, text in (("ты", step.text_ty), ("вы", step.text_vy), ("ты, кратко", step.short_ty),
                         ("вы, кратко", step.short_vy)):
